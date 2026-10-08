@@ -62,7 +62,8 @@ public abstract class Module {
             }
             try {
                 if (!(this instanceof Notifications) && !(this instanceof GuiModule)) {
-                    Notifications.push(this.name, "", enabled);
+                    Notifications.push(enabled ? "Enabled" : "Disabled",
+                            this.name + (enabled ? " Toggled" : " Toggled Off"), enabled);
                 }
             } catch (Throwable ignored) {}
         }

@@ -1,92 +1,89 @@
 package crewx.util.notifications;
 
-
+import crewx.clickgui.render.RoundedUtils;
+import crewx.gui.BackdropBlur;
 import crewx.gui.ClientFont;
-import crewx.util.RenderUtil;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.util.ResourceLocation;
-import org.lwjgl.opengl.GL11;
 
-import java.awt.Color;
 import java.util.List;
 
 public class NotificationRenderer implements INotificationRenderer {
-
-    private ResourceLocation WARNING = new ResourceLocation("textures/warning.png");
-    private ResourceLocation NOTIFY = new ResourceLocation("textures/notify.png");
-    private ResourceLocation OKAY = new ResourceLocation("textures/okay.png");
-    private ResourceLocation INFO = new ResourceLocation("textures/info.png");
-    private static final int MARGIN = 4;
-    private static final int BOX_HEIGHT = 23;
-    private static final int SPACING = 24;
-    private static final int PADDING = 25;
+    private static final int MARGIN = 8;
+    private static final int BOX_HEIGHT = 32;
+    private static final int SPACING = 36;
+    private static final int HORIZONTAL_PADDING = 33;
+    private static final int SUCCESS = 0xFF54C98A;
+    private static final int FAILURE = 0xFFE6656B;
+    private static final int NOTICE = 0xFFE7B853;
+    private static final int INFO = 0xFF5E98F5;
 
     @Override
     public void draw(List<INotification> notifications) {
         Minecraft mc = Minecraft.getMinecraft();
-        ScaledResolution sr = new ScaledResolution(mc);
-        final int screenWidth = sr.getScaledWidth();
-        final int screenHeight = sr.getScaledHeight();
-        final int maxTextWidth = Math.max(16, screenWidth - MARGIN * 2 - PADDING);
-        float y = screenHeight - MARGIN - notifications.size() * SPACING;
-        if (y < MARGIN) y = MARGIN;
-        for (INotification notification : notifications) {
-            Notification not = (Notification) notification;
-            String header = trim(mc, not.getHeader(), maxTextWidth);
-            String subtext = trim(mc, not.getSubtext(), maxTextWidth);
-            int headerWidth = ClientFont.getStringWidth(header);
-            int subWidth = ClientFont.getStringWidth(subtext);
-            float boxW = Math.max(headerWidth, subWidth) + PADDING;
-            boolean leaving = not.checkTime() >= not.getDisplayTime() + not.getStart();
-            float targetX = leaving ? screenWidth : screenWidth - MARGIN - boxW;
-            not.setTarX((int) targetX);
-            not.translate.interpolate(targetX, y, 0.3f);
-            float x = not.translate.getX();
-            float boxY = not.translate.getY();
-            int accent = getColor(not.getType());
-            GL11.glPushMatrix();
-            RenderUtil.enableRenderState();
-            RenderUtil.drawRect(x, boxY, x + boxW, boxY + BOX_HEIGHT, new Color(0, 0, 0, 200).getRGB());
-            RenderUtil.drawRect(x, boxY, x + 2, boxY + BOX_HEIGHT, accent);
-            RenderUtil.disableRenderState();
-            GlStateManager.enableTexture2D();
-            GlStateManager.enableBlend();
-            GlStateManager.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-            GlStateManager.enableAlpha();
+        ScaledResolution resolution = new ScaledResolution(mc);
+        int screenWidth = resolution.getScaledWidth();
+        int screenHeight = resolution.getScaledHeight();
+        int maxTextWidth = Math.max(16, screenWidth - MARGIN * 2 - HORIZONTAL_PADDING);
+        float y = Math.max(MARGIN, screenHeight - MARGIN - notifications.size() * SPACING);
+
+        for (INotification value : notifications) {
+            Notification notification = (Notification) value;
+            String header = trim(notification.getHeader(), maxTextWidth);
+            String subtext = trim(notification.getSubtext(), maxTextWidth);
+            int textWidth = Math.max(ClientFont.getStringWidth(header), ClientFont.getStringWidth(subtext));
+            float boxWidth = Math.min(screenWidth - MARGIN * 2,
+                    Math.max(112.0F, textWidth + HORIZONTAL_PADDING));
+            boolean leaving = notification.checkTime() >= notification.getDisplayTime() + notification.getStart();
+            float targetX = leaving ? screenWidth + MARGIN : screenWidth - MARGIN - boxWidth;
+            notification.setTarX((int) targetX);
+            notification.translate.interpolate(targetX, y, 0.30F);
+
+            float x = notification.translate.getX();
+            float boxY = notification.translate.getY();
+            int accent = getColor(notification.getType());
+            boolean moduleEnabled = "Enabled".equalsIgnoreCase(notification.getHeader());
+            boolean moduleDisabled = "Disabled".equalsIgnoreCase(notification.getHeader());
+            boolean moduleToggle = moduleEnabled || moduleDisabled;
+
+            BackdropBlur.drawRoundedPanel(x, boxY, boxWidth, BOX_HEIGHT, 6.0F, 0xB80A0B0E);
             GlStateManager.pushMatrix();
-            switch (not.getType().name) {
-                case "NOTIFY": mc.getTextureManager().bindTexture(NOTIFY); break;
-                case "WARNING": mc.getTextureManager().bindTexture(WARNING); break;
-                case "INFO": mc.getTextureManager().bindTexture(INFO); break;
-                case "OKAY": mc.getTextureManager().bindTexture(OKAY); break;
-            }
-            GlStateManager.translate(x + 2, boxY + 2.5f, 0);
-            Gui.drawModalRectWithCustomSizedTexture(0, 0, 0, 0, 18, 18, 18, 18);
+            GlStateManager.translate(x + 7.0F, boxY + 4.0F, 0.0F);
+            GlStateManager.scale(1.5F, 1.5F, 1.0F);
+            ClientFont.drawStringWithShadow("!", 0.0F, 0.0F, accent);
             GlStateManager.popMatrix();
-            ClientFont.drawStringWithShadow(header, x + 22, boxY + 2, -1);
-            ClientFont.drawStringWithShadow(subtext, x + 22, boxY + 12, 0xFFB0B0B0);
-            GlStateManager.disableBlend();
-            GlStateManager.disableAlpha();
-            RenderUtil.enableRenderState();
-            double percent = Math.min(1, Math.max(0,
-                    (double) (System.currentTimeMillis() - not.getStart()) / not.getDisplayTime()));
-            RenderUtil.drawRect(x, boxY + 21, x + boxW, boxY + BOX_HEIGHT, new Color(0, 0, 0, 45).getRGB());
-            RenderUtil.drawRect(x, boxY + 21, x + (float) (boxW * percent), boxY + BOX_HEIGHT, accent);
-            RenderUtil.disableRenderState();
-            GL11.glPopMatrix();
-            if (leaving && not.translate.getX() >= screenWidth - 1) {
+
+            int headerColor = moduleToggle ? accent : 0xFFFFFFFF;
+            ClientFont.drawStringWithShadow(header, x + 16.0F, boxY + 4.0F, headerColor);
+            ClientFont.drawStringWithShadow(subtext, x + 16.0F, boxY + 17.0F, 0xFFE0E1E4);
+
+            long duration = Math.max(1L, notification.getDisplayTime());
+            double remaining = Math.max(0.0D, Math.min(1.0D,
+                    1.0D - (double) (notification.checkTime() - notification.getStart()) / duration));
+            float progressX = x + 7.0F;
+            float progressY = boxY + BOX_HEIGHT - 3.0F;
+            float progressWidth = Math.max(0.0F, (boxWidth - 14.0F) * (float) remaining);
+            RoundedUtils.drawRoundedRect(progressX, progressY, boxWidth - 14.0F, 1.5F, 0x40FFFFFF, 1.0F);
+            if (progressWidth > 0.0F) {
+                RoundedUtils.drawRoundedRect(progressX, progressY, progressWidth, 1.5F, accent, 1.0F);
+            }
+
+            if (leaving && notification.translate.getX() >= screenWidth - 1.0F) {
                 notifications.remove(notification);
             }
             y += SPACING;
         }
+
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableAlpha();
+        GlStateManager.disableBlend();
     }
-    private String trim(Minecraft mc, String text, int maxWidth) {
+
+    private String trim(String text, int maxWidth) {
         if (text == null) return "";
         if (ClientFont.getStringWidth(text) <= maxWidth) return text;
-
         StringBuilder builder = new StringBuilder();
         for (int i = 0; i < text.length(); i++) {
             if (ClientFont.getStringWidth(builder.toString() + text.charAt(i) + "...") > maxWidth) break;
@@ -96,10 +93,9 @@ public class NotificationRenderer implements INotificationRenderer {
     }
 
     private int getColor(NotificationType type) {
-        if (type == NotificationType.INFO) return new Color(64, 131, 214).getRGB();
-        if (type == NotificationType.NOTIFY) return new Color(242, 206, 87).getRGB();
-        if (type == NotificationType.WARNING) return new Color(226, 74, 74).getRGB();
-        if (type == NotificationType.OKAY) return new Color(65, 252, 65).getRGB();
-        return -1;
+        if (type == NotificationType.WARNING) return FAILURE;
+        if (type == NotificationType.OKAY) return SUCCESS;
+        if (type == NotificationType.NOTIFY) return NOTICE;
+        return INFO;
     }
 }

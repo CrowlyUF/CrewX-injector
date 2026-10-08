@@ -60,6 +60,22 @@ public class BlockHit extends Module {
     public void onTick(TickEvent event) {
         if (!this.isEnabled() || mc.thePlayer == null || mc.theWorld == null) return;
         if (event.getType() == EventType.PRE) {
+            AutoSoup autoSoup = CrewX.moduleManager == null
+                    ? null
+                    : (AutoSoup) CrewX.moduleManager.getModule(AutoSoup.class);
+            if (autoSoup != null && autoSoup.isProcessingSoup()) {
+                this.startBlocking = false;
+                this.attacking = false;
+                this.attackTicks = 0;
+                this.holdTicks = 0;
+                this.stopTick = 0;
+                this.sagTicks = 0;
+                this.blockTicks = 0;
+                this.target = null;
+                this.timer.reset();
+                CrewX.lagManager.setDelay(0);
+                return;
+            }
             if (this.mode.getValue() == 0) {
                 if (mc.gameSettings.keyBindAttack.isKeyDown()) {
                     if (mc.thePlayer.isBlocking()) {

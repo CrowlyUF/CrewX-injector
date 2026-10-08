@@ -85,6 +85,7 @@ public class ClickGui extends GuiScreen {
     private ModuleCategory selectedCategory = ModuleCategory.COMBAT;
     private Module selectedModule;
     private Module listeningModule;
+    private SettingComponent listeningSettingBind;
     private SettingComponent focusedText;
     private SettingComponent draggingSetting;
     private int dragMode;
@@ -732,7 +733,7 @@ public class ClickGui extends GuiScreen {
 
     private void updateScrollDrag(float mouseY) {
         if (this.scrollDragTarget == DRAG_NONE || !Mouse.isButtonDown(0)) return;
-        if (!this.scrollDragActive && Math.abs(mouseY - this.scrollDragOriginY) >= 3.0F) {
+        if (!this.scrollDragActive && Math.abs(mouseY - this.scrollDragOriginY) >= 7.0F) {
             this.scrollDragActive = true;
             this.pendingModuleClick = null;
             this.pendingConfigClick = null;
@@ -860,6 +861,7 @@ public class ClickGui extends GuiScreen {
             this.listeningModule = null;
             return;
         }
+        if (this.listeningSettingBind != null) return;
         if (this.searchFocused && !this.insideSearch(mx, my)) this.searchFocused = false;
 
         if (mx >= this.windowX && mx <= this.windowX + this.windowWidth
@@ -920,7 +922,6 @@ public class ClickGui extends GuiScreen {
 
         if (mx >= this.windowX + this.sidebarWidth + 6.0F && mx < this.settingsX
                 && my >= this.moduleListY && my <= this.bodyY + this.bodyHeight) {
-            if (mouseButton == 0) this.beginScrollDrag(DRAG_MODULES, my);
             List<Module> visible = this.getVisibleModules();
             int index = (int) ((my - this.moduleListY + this.moduleScroll) / MODULE_ROW_HEIGHT);
             if (index >= 0 && index < visible.size()) {
@@ -930,17 +931,28 @@ public class ClickGui extends GuiScreen {
                 boolean toggleHit = mx >= rowX + rowWidth - 31.0F && mx <= rowX + rowWidth - 3.0F;
                 boolean settingsHit = mx >= rowX + rowWidth - 39.0F && !toggleHit;
                 if (mouseButton == 0) {
-                    this.pendingModuleClick = module;
-                    this.pendingModuleToggleHit = toggleHit;
-                    this.pendingModuleSettingsHit = settingsHit;
+                    if (toggleHit) {
+                        this.clearScrollDrag();
+                        module.toggle();
+                    } else if (settingsHit) {
+                        this.clearScrollDrag();
+                        this.selectModule(module);
+                    } else {
+                        this.beginScrollDrag(DRAG_MODULES, my);
+                        this.pendingModuleClick = module;
+                    }
                 } else if (mouseButton == 2) {
                     this.listeningModule = module;
                 } else if (mouseButton == 1 || settingsHit) {
+                    this.clearScrollDrag();
                     this.selectModule(module);
                 }
                 return;
             }
-            if (mouseButton == 0) return;
+            if (mouseButton == 0) {
+                this.beginScrollDrag(DRAG_MODULES, my);
+                return;
+            }
         }
 
         if (this.selectedModule != null && mx >= this.settingsX && my >= this.bodyY) {
@@ -1078,6 +1090,16 @@ public class ClickGui extends GuiScreen {
             this.listeningModule = null;
             return;
         }
+        if (this.listeningSettingBind != null) {
+            IntProperty bind = (IntProperty) this.listeningSettingBind.property;
+            if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_DELETE) {
+                bind.setValue(0);
+            } else if (keyCode != Keyboard.KEY_NONE) {
+                bind.setValue(keyCode);
+            }
+            this.listeningSettingBind = null;
+            return;
+        }
         if (this.searchFocused) {
             if (keyCode == Keyboard.KEY_ESCAPE || keyCode == Keyboard.KEY_RETURN) {
                 this.searchFocused = false;
@@ -1110,6 +1132,7 @@ public class ClickGui extends GuiScreen {
     @Override
     public void onGuiClosed() {
         this.setFocus(null);
+        this.listeningSettingBind = null;
         this.searchFocused = false;
         this.draggingWindow = false;
         this.draggingSetting = null;
@@ -1338,6 +1361,10 @@ public class ClickGui extends GuiScreen {
             }
         }
 
+        private boolean isManualBind() {
+            return this.property instanceof IntProperty && "manual-bind".equals(this.property.getName());
+        }
+
         private void updateAnimations(float delta) {
             this.dropdownAnim = approach(this.dropdownAnim, this.dropdownOpen ? 1.0F : 0.0F, delta, 13.0F);
             this.pickerAnim = approach(this.pickerAnim, this.pickerOpen ? 1.0F : 0.0F, delta, 13.0F);
@@ -1366,6 +1393,8 @@ public class ClickGui extends GuiScreen {
                     lerpColor(PANEL_ALT.getRGB(), ROW_HOVER.getRGB(), this.hoverAnim * 0.55F), 6.0F);
             if (this.property instanceof ButtonProperty) {
                 this.renderButton(x, y, width);
+            } else if (this.isManualBind()) {
+                this.renderManualBind(x, y, width);
             } else if (this.property instanceof BooleanProperty) {
                 this.renderBoolean(x, y, width);
             } else if (isSlider(this.property)) {
@@ -1396,6 +1425,24 @@ public class ClickGui extends GuiScreen {
             ClickGui.this.round(switchX, switchY, 25.0F, 11.0F,
                     lerpColor(TRACK.getRGB(), accentColor().getRGB(), this.toggleAnim), 6.0F);
             ClickGui.this.round(switchX + 1.5F + 12.0F * this.toggleAnim, switchY + 1.5F, 8.0F, 8.0F, 0xFFFFFFFF, 4.0F);
+        }
+
+        private void renderManualBind(float x, float y, int width) {
+            IntProperty bind = (IntProperty) this.property;
+            boolean listening = ClickGui.this.listeningSettingBind == this;
+            String keyText = listening ? "Press a key..."
+                    : bind.getValue() == 0 ? "None" : KeyBindUtil.getKeyName(bind.getValue());
+            keyText = ClickGui.this.trimToWidth(keyText, Math.max(16, (int) (width * 0.52F)));
+            float boxWidth = Math.min(width * 0.58F, Math.max(34.0F, FONT.getStringWidth(keyText) + 12.0F));
+            float boxX = x + width - boxWidth - 7.0F;
+            String label = ClickGui.this.trimToWidth(this.property.getName().replace('-', ' '),
+                    Math.max(0, (int) (boxX - x - 15.0F)));
+            float textY = y + (SETTING_HEIGHT - FONT.getFontHeight()) / 2.0F;
+            ClickGui.this.text(label, x + 10.0F, textY, TEXT.getRGB());
+            ClickGui.this.round(boxX, y + 3.0F, boxWidth, 17.0F,
+                    listening ? withAlpha(accentColor().getRGB(), 0.42F) : TRACK.getRGB(), 5.0F);
+            ClickGui.this.text(keyText, boxX + (boxWidth - FONT.getStringWidth(keyText)) / 2.0F,
+                    y + 4.5F, listening ? 0xFFFFFFFF : accentColor().brighter().getRGB());
         }
 
         private void renderNumber(float x, float y, int width, float mouseX, float mouseY) {
@@ -1531,6 +1578,12 @@ public class ClickGui extends GuiScreen {
 
         private boolean mouseClicked(float x, float y, int width, float mouseX, float mouseY, int mouseButton, boolean pressPhase) {
             boolean onRow = mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + SETTING_HEIGHT;
+            if (this.isManualBind()) {
+                if (pressPhase || !onRow) return false;
+                ClickGui.this.setFocus(null);
+                ClickGui.this.listeningSettingBind = this;
+                return true;
+            }
             if (isSlider(this.property)) {
                 boolean onValue = this.valueBoxContains(x, y, width, mouseX, mouseY);
                 if (pressPhase) {

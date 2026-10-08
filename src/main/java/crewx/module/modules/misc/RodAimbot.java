@@ -94,6 +94,14 @@ public class RodAimbot extends Module {
     }
 
     private EntityPlayer findTarget() {
+        AntiBot antiBot = null;
+        if (CrewX.moduleManager != null) {
+            Module antiBotModule = CrewX.moduleManager.getModule(AntiBot.class);
+            if (antiBotModule instanceof AntiBot) {
+                antiBot = (AntiBot) antiBotModule;
+            }
+        }
+        boolean filterBots = antiBot != null && antiBot.isEnabled();
         for (EntityPlayer entityPlayer : mc.theWorld.playerEntities) {
             if (entityPlayer == mc.thePlayer) continue;
             if (entityPlayer.deathTime != 0) continue;
@@ -102,8 +110,7 @@ public class RodAimbot extends Module {
             if (CrewX.friendManager.isFriend(entityPlayer.getName())) continue;
             float fovVal = fov.getValue();
             if (fovVal != 360.0f && !inFov(fovVal, entityPlayer)) continue;
-            AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-            if (antiBot != null && antiBot.isBot(entityPlayer)) continue;
+            if (filterBots && antiBot.isBot(entityPlayer)) continue;
             if (ignoreTeammates.getValue() && TeamUtil.isSameTeam(entityPlayer)) continue;
             return entityPlayer;
         }

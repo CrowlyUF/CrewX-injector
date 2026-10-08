@@ -1,38 +1,44 @@
 package crewx.module.modules.combat;
-import crewx.module.modules.combat.*;
-import crewx.module.modules.movement.*;
-import crewx.module.modules.render.*;
-import crewx.module.modules.player.*;
-import crewx.module.modules.misc.*;
 
-import com.google.common.base.CaseFormat;
+import crewx.CrewX;
 import crewx.event.EventTarget;
 import crewx.event.types.EventType;
-import crewx.events.*;
+import crewx.event.types.Priority;
+import crewx.events.AttackEvent;
+import crewx.events.KnockbackEvent;
+import crewx.events.LoadWorldEvent;
+import crewx.events.LivingUpdateEvent;
+import crewx.events.PacketEvent;
+import crewx.events.TickEvent;
 import crewx.mixin.IAccessorEntity;
 import crewx.module.Module;
+import crewx.module.modules.misc.AntiBot;
 import crewx.property.properties.BooleanProperty;
 import crewx.property.properties.ModeProperty;
 import crewx.property.properties.PercentProperty;
 import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.network.Packet;
 import net.minecraft.network.play.INetHandlerPlayClient;
-import net.minecraft.network.play.server.S08PacketPlayerPosLook;
+import net.minecraft.network.play.client.C02PacketUseEntity;
+import net.minecraft.network.play.client.C0FPacketConfirmTransaction;
 import net.minecraft.network.play.server.S12PacketEntityVelocity;
 import net.minecraft.network.play.server.S19PacketEntityStatus;
 import net.minecraft.network.play.server.S27PacketExplosion;
-import net.minecraft.network.play.server.S32PacketConfirmTransaction;
 
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Velocity extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
+    private static final int DELAY_TICKS = 40;
+    private static final int ATTACK_COOLDOWN_TICKS = 4;
 
     private int chanceCounter = 0;
     private boolean pendingExplosion = false;
     private boolean allowNext = true;
 
-    public final ModeProperty mode = new ModeProperty("mode", 0, new String[]{"Vanilla", "Grim Jump", "JumpReset", "Kaizen Delay [BETA]"});
+    public final ModeProperty mode = new ModeProperty("mode", 0, new String[]{"Vanilla", "Jump Reset", "Delay"});
     public final PercentProperty chance = new PercentProperty("chance", 100);
     public final PercentProperty horizontal = new PercentProperty("horizontal", 0);
     public final PercentProperty vertical = new PercentProperty("vertical", 100);
@@ -40,28 +46,21 @@ public class Velocity extends Module {
     public final PercentProperty explosionVertical = new PercentProperty("explosions-vertical", 100);
     public final BooleanProperty fakeCheck = new BooleanProperty("fake-check", true);
 
-    private boolean freezeDelaying = false;
-    private int freezeTimeout = 0;
-    private boolean receivedS08 = false;
-    private boolean gotKnockback = false;
-    private int spoofTimer = 0;
-    private final ConcurrentLinkedDeque<Packet<INetHandlerPlayClient>> freezePacketQueue = new ConcurrentLinkedDeque<>();
-    private boolean spoofingPositions = false;
+    private final List<Runnable> delayPacketActions = new ArrayList<>();
+    private volatile boolean delayActive = false;
+    private int delayTicks = 0;
+    private volatile int attackCooldownTicks = 0;
 
     private boolean isInLiquidOrWeb() {
         return mc.thePlayer.isInWater() || mc.thePlayer.isInLava() || ((IAccessorEntity) mc.thePlayer).getIsInWeb();
     }
 
-    private boolean isGrimJump() {
+    private boolean isJumpReset() {
         return this.mode.getValue() == 1;
     }
 
-    private boolean isJumpReset() {
+    private boolean isDelayMode() {
         return this.mode.getValue() == 2;
-    }
-
-    private boolean isKaizenDelayMode() {
-        return this.mode.getValue() == 3;
     }
 
     public Velocity() {
@@ -71,28 +70,23 @@ public class Velocity extends Module {
     @Override
     public void onEnabled() {
         super.onEnabled();
-        freezePacketQueue.clear();
-        freezeDelaying = false;
-        freezeTimeout = 0;
-        receivedS08 = false;
-        gotKnockback = false;
         this.pendingExplosion = false;
         this.allowNext = true;
+        this.attackCooldownTicks = 0;
+        synchronized (this.delayPacketActions) {
+            this.delayPacketActions.clear();
+            this.delayActive = false;
+            this.delayTicks = 0;
+        }
     }
 
     @Override
     public void onDisabled() {
         super.onDisabled();
-        flushFreeze();
-        freezePacketQueue.clear();
-        freezeDelaying = false;
-        freezeTimeout = 0;
-        spoofTimer = 0;
-        spoofingPositions = false;
-        receivedS08 = false;
-        gotKnockback = false;
+        this.flushDelayQueue();
         this.pendingExplosion = false;
         this.allowNext = true;
+        this.attackCooldownTicks = 0;
     }
 
     @EventTarget
@@ -100,10 +94,8 @@ public class Velocity extends Module {
         if (!this.isEnabled() || event.isCancelled()) {
             this.pendingExplosion = false;
             this.allowNext = true;
-        } else if (this.isKaizenDelayMode()) {
+        } else if (this.isDelayMode()) {
             this.pendingExplosion = false;
-            this.allowNext = true;
-        } else if (this.isGrimJump()) {
             this.allowNext = true;
         } else if (this.isJumpReset()) {
             this.allowNext = true;
@@ -146,43 +138,7 @@ public class Velocity extends Module {
         }
     }
 
-    @EventTarget
-    public void onAttack(AttackEvent event) {
-        if (this.isEnabled() && this.isGrimJump() && !event.isCancelled()) {
-            if (mc.thePlayer == null) return;
-            boolean moving = mc.thePlayer.moveForward != 0.0F || mc.thePlayer.moveStrafing != 0.0F;
-            if (!moving || !mc.thePlayer.isSprinting()) return;
-            switch (mc.thePlayer.hurtTime) {
-                case 9:
-                    mc.thePlayer.motionX *= 0.8;
-                    mc.thePlayer.motionZ *= 0.8;
-                    break;
-                case 8:
-                    mc.thePlayer.motionX *= 0.11;
-                    mc.thePlayer.motionZ *= 0.11;
-                    break;
-                case 7:
-                    mc.thePlayer.motionX *= 0.4;
-                    mc.thePlayer.motionZ *= 0.4;
-                    break;
-                case 4:
-                    mc.thePlayer.motionX *= 0.37;
-                    mc.thePlayer.motionZ *= 0.37;
-                    break;
-            }
-        }
-    }
-
-    @EventTarget
-    public void onLivingUpdate(LivingUpdateEvent event) {
-        if (this.isEnabled() && this.isGrimJump()) {
-            if (mc.thePlayer.hurtTime > 5 && mc.thePlayer.onGround && !this.isInLiquidOrWeb()) {
-                mc.thePlayer.jump();
-            }
-        }
-    }
-
-    @EventTarget
+    @EventTarget(Priority.LOWEST)
     public void onPacket(PacketEvent event) {
         if (!this.isEnabled() || event.isCancelled()) {
             this.pendingExplosion = false;
@@ -190,178 +146,178 @@ public class Velocity extends Module {
             return;
         }
 
-        if (this.isKaizenDelayMode()) {
-            if (event.getType() == EventType.SEND && freezeDelaying) {
-                Packet<?> packet = event.getPacket();
-                if (packet instanceof net.minecraft.network.play.client.C03PacketPlayer) {
-                    net.minecraft.network.play.client.C03PacketPlayer.C06PacketPlayerPosLook fakePacket =
-                        new net.minecraft.network.play.client.C03PacketPlayer.C06PacketPlayerPosLook(
-                            mc.thePlayer.posX, mc.thePlayer.posY, mc.thePlayer.posZ,
-                            mc.thePlayer.rotationYaw, mc.thePlayer.rotationPitch,
-                            false
-                        );
-                    crewx.util.PacketUtil.sendPacketNoEvent(fakePacket);
-                    event.setCancelled(true);
-                    return;
-                }
-            }
+        if (this.isDelayMode()) {
+            this.handleDelayPacket(event);
+            this.pendingExplosion = false;
+            this.allowNext = true;
+            return;
+        }
 
-            if (event.getType() == EventType.RECEIVE) {
-                Packet<?> packet = event.getPacket();
-
-                if (packet instanceof S08PacketPlayerPosLook) {
-                    if (freezeDelaying) {
-                        freezePacketQueue.clear();
-                        freezeDelaying = false;
-                        freezeTimeout = 0;
-                        gotKnockback = false;
-                    }
-                    spoofingPositions = false;
-                    spoofTimer = 0;
-                    receivedS08 = true;
-                    return;
-                }
-
-                if (packet instanceof S19PacketEntityStatus) {
-                    S19PacketEntityStatus s19 = (S19PacketEntityStatus) packet;
-                    if (s19.getEntity(mc.theWorld) != null &&
-                            s19.getEntity(mc.theWorld).equals(mc.thePlayer) &&
-                            s19.getOpCode() == 2) {
-                        gotKnockback = true;
-                    }
-                }
-
-                if (packet instanceof S12PacketEntityVelocity) {
-                    S12PacketEntityVelocity s12 = (S12PacketEntityVelocity) packet;
-                    if (s12.getEntityID() == mc.thePlayer.getEntityId()) {
-                        if (receivedS08) {
-                            receivedS08 = false;
-                        } else {
-                            return;
-                        }
-
-                        if (!gotKnockback) {
-                            return;
-                        }
-
-                        if (freezeDelaying) {
-                            event.setCancelled(true);
-                            return;
-                        }
-
-                        freezeDelaying = true;
-                        freezeTimeout = 0;
-                        spoofTimer = 0;
-                        spoofingPositions = true;
+        if (event.getType() == EventType.RECEIVE) {
+            if (event.getPacket() instanceof S27PacketExplosion) {
+                S27PacketExplosion packet = (S27PacketExplosion) event.getPacket();
+                if (packet.func_149149_c() != 0.0F || packet.func_149144_d() != 0.0F || packet.func_149147_e() != 0.0F) {
+                    this.pendingExplosion = true;
+                    if (this.explosionHorizontal.getValue() == 0 || this.explosionVertical.getValue() == 0) {
                         event.setCancelled(true);
-                        @SuppressWarnings("unchecked")
-                        Packet<INetHandlerPlayClient> playPacket = (Packet<INetHandlerPlayClient>) packet;
-                        freezePacketQueue.add(playPacket);
-                        return;
                     }
                 }
-
-                if (freezeDelaying && packet instanceof S32PacketConfirmTransaction) {
-                    event.setCancelled(true);
-                    @SuppressWarnings("unchecked")
-                    Packet<INetHandlerPlayClient> playPacket = (Packet<INetHandlerPlayClient>) packet;
-                    freezePacketQueue.add(playPacket);
-                    return;
-                }
-
-                if (packet instanceof S27PacketExplosion) {
-                    S27PacketExplosion pkt = (S27PacketExplosion) packet;
-                    if (pkt.func_149149_c() != 0.0F || pkt.func_149144_d() != 0.0F || pkt.func_149147_e() != 0.0F) {
-                        this.pendingExplosion = true;
-                    }
-                }
-            }
-        } else {
-            if (event.getType() == EventType.RECEIVE && !event.isCancelled()) {
-                if (event.getPacket() instanceof S27PacketExplosion) {
-                    S27PacketExplosion packet = (S27PacketExplosion) event.getPacket();
-                    if (packet.func_149149_c() != 0.0F || packet.func_149144_d() != 0.0F || packet.func_149147_e() != 0.0F) {
-                        this.pendingExplosion = true;
-                        if (this.explosionHorizontal.getValue() == 0 || this.explosionVertical.getValue() == 0) {
-                            event.setCancelled(true);
-                        }
-                    }
-                } else if (event.getPacket() instanceof S19PacketEntityStatus) {
-                    S19PacketEntityStatus packet = (S19PacketEntityStatus) event.getPacket();
-                    net.minecraft.entity.Entity entity = packet.getEntity(mc.theWorld);
-                    if (entity != null && entity.equals(mc.thePlayer) && packet.getOpCode() == 2) {
-                        this.allowNext = false;
-                    }
+            } else if (event.getPacket() instanceof S19PacketEntityStatus) {
+                S19PacketEntityStatus packet = (S19PacketEntityStatus) event.getPacket();
+                net.minecraft.entity.Entity entity = packet.getEntity(mc.theWorld);
+                if (entity != null && entity.equals(mc.thePlayer) && packet.getOpCode() == 2) {
+                    this.allowNext = false;
                 }
             }
         }
     }
 
+    private void handleDelayPacket(PacketEvent event) {
+        if (mc.thePlayer == null || mc.theWorld == null) {
+            return;
+        }
+
+        Packet<?> packet = event.getPacket();
+        if (event.getType() == EventType.RECEIVE && packet instanceof S19PacketEntityStatus) {
+            S19PacketEntityStatus status = (S19PacketEntityStatus) packet;
+            if (this.attackCooldownTicks == 0 && status.getOpCode() == 2
+                    && status.getEntity(mc.theWorld) == mc.thePlayer && this.isNearOpponent()) {
+                this.queueDelayAction(() -> { }, true);
+            }
+            return;
+        }
+
+        if (event.getType() == EventType.RECEIVE && packet instanceof S12PacketEntityVelocity) {
+            S12PacketEntityVelocity velocity = (S12PacketEntityVelocity) packet;
+            if (this.attackCooldownTicks == 0 && velocity.getEntityID() == mc.thePlayer.getEntityId()
+                    && (this.delayActive || this.isNearOpponent())
+                    && this.queueIncomingDelayPacket(packet, true)) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        if (event.getType() == EventType.SEND && packet instanceof C02PacketUseEntity) {
+            C02PacketUseEntity useEntity = (C02PacketUseEntity) packet;
+            if (useEntity.getAction() == C02PacketUseEntity.Action.ATTACK) {
+                this.attackCooldownTicks = ATTACK_COOLDOWN_TICKS;
+                if (this.delayActive) {
+                    this.flushDelayQueue();
+                }
+            }
+            return;
+        }
+
+        if (event.getType() == EventType.SEND && packet instanceof C0FPacketConfirmTransaction && this.delayActive) {
+            INetHandlerPlayClient handler = mc.getNetHandler();
+            if (this.queueDelayAction(() -> {
+                if (handler != null && mc.getNetHandler() == handler) {
+                    crewx.util.PacketUtil.sendPacketNoEvent(packet);
+                }
+            }, false)) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    private boolean queueIncomingDelayPacket(Packet<?> packet, boolean startIfIdle) {
+        INetHandlerPlayClient handler = mc.getNetHandler();
+        if (handler == null) {
+            return false;
+        }
+        @SuppressWarnings("unchecked")
+        Packet<INetHandlerPlayClient> incoming = (Packet<INetHandlerPlayClient>) packet;
+        return this.queueDelayAction(() -> {
+            if (mc.getNetHandler() == handler) {
+                try {
+                    incoming.processPacket(handler);
+                } catch (Exception ignored) {
+                }
+            }
+        }, startIfIdle);
+    }
+
+    private boolean queueDelayAction(Runnable action, boolean startIfIdle) {
+        synchronized (this.delayPacketActions) {
+            if (!this.delayActive && !startIfIdle) {
+                return false;
+            }
+            this.delayPacketActions.add(action);
+            if (!this.delayActive) {
+                this.delayActive = true;
+                this.delayTicks = 0;
+            }
+        }
+        return true;
+    }
+
+    private void flushDelayQueue() {
+        List<Runnable> actions;
+        synchronized (this.delayPacketActions) {
+            actions = new ArrayList<>(this.delayPacketActions);
+            this.delayPacketActions.clear();
+            this.delayActive = false;
+            this.delayTicks = 0;
+        }
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private boolean isNearOpponent() {
+        if (mc.thePlayer == null || mc.theWorld == null) {
+            return false;
+        }
+        AntiBot antiBot = CrewX.moduleManager == null ? null
+                : (AntiBot) CrewX.moduleManager.getModule(AntiBot.class);
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            boolean isBot = antiBot != null && antiBot.isEnabled() && antiBot.isBot(player);
+            if (player != mc.thePlayer && !player.isDead && !isBot
+                    && mc.thePlayer.getDistanceToEntity(player) <= 5.0F) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @EventTarget
     public void onTick(TickEvent event) {
-        if (!this.isEnabled())
+        if (!this.isEnabled() || event.getType() != EventType.POST) {
             return;
+        }
 
-        if (event.getType() == EventType.POST) {
-            if (this.isKaizenDelayMode()) {
-                if (this.freezeDelaying) {
-                    this.freezeTimeout++;
-
-                    if (gotKnockback) {
-                        boolean moving = mc.thePlayer.moveForward != 0.0F || mc.thePlayer.moveStrafing != 0.0F;
-                        if (moving && this.freezeTimeout >= 15) {
-                            this.freezeTimeout = 30;
-                        }
-                    }
-
-                    if (this.freezeTimeout >= 30) {
-                        flushFreeze();
-                    }
-                }
-                receivedS08 = false;
-            } else {
-                this.pendingExplosion = false;
-                this.allowNext = true;
+        if (this.attackCooldownTicks > 0) {
+            this.attackCooldownTicks--;
+        }
+        boolean flushDelay = false;
+        synchronized (this.delayPacketActions) {
+            if (this.delayActive && ++this.delayTicks >= DELAY_TICKS) {
+                flushDelay = true;
             }
+        }
+        if (flushDelay) {
+            this.flushDelayQueue();
+        }
+        if (!this.isDelayMode()) {
+            this.pendingExplosion = false;
+            this.allowNext = true;
         }
     }
 
     @EventTarget
     public void onLoadWorld(LoadWorldEvent event) {
-        flushFreeze();
+        this.flushDelayQueue();
         this.onDisabled();
-    }
-
-    private void flushFreeze() {
-        if (freezePacketQueue.isEmpty()) {
-            freezeDelaying = false;
-            freezeTimeout = 0;
-            gotKnockback = false;
-            return;
-        }
-
-        synchronized (freezePacketQueue) {
-            while (!freezePacketQueue.isEmpty()) {
-                Packet<INetHandlerPlayClient> packet = freezePacketQueue.poll();
-                if (packet != null) {
-                    try {
-                        packet.processPacket(mc.getNetHandler());
-                    } catch (Exception e) {
-                    }
-                }
-            }
-        }
-        freezeDelaying = false;
-        freezeTimeout = 0;
-        gotKnockback = false;
-        receivedS08 = false;
     }
 
     @Override
     public String[] getSuffix() {
-        if (this.isKaizenDelayMode() && freezeDelaying) {
-            return new String[]{"Kaizen Delay " + freezeTimeout + "/30"};
+        if (this.isDelayMode()) {
+            return new String[]{"40 ticks"};
         }
-        return new String[]{CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, this.mode.getModeString())};
+        return new String[]{this.mode.getModeString()};
     }
 }

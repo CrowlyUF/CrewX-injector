@@ -19,6 +19,7 @@ import net.minecraft.client.gui.inventory.GuiInventory;
 import net.minecraft.item.ItemSoup;
 import net.minecraft.item.ItemStack;
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 import java.util.ArrayList;
 import java.util.Random;
@@ -38,6 +39,7 @@ public class AutoRefill extends Module {
     private long lastMs = 0L;
     private long delay = 0L;
     private boolean start = false;
+    private long manualPauseUntil = 0L;
 
     public AutoRefill() {
         super("AutoRefill", false);
@@ -109,6 +111,13 @@ public class AutoRefill extends Module {
             return;
         }
 
+        if (Mouse.isButtonDown(0) || Mouse.isButtonDown(1)
+                || mc.thePlayer.inventory.getItemStack() != null) {
+            manualPauseUntil = System.currentTimeMillis() + 900L;
+            return;
+        }
+        if (System.currentTimeMillis() < manualPauseUntil) return;
+
         if (start) {
             if (hasSoupInHotbar() && isHotbarFull()) {
                 start = false;
@@ -153,6 +162,7 @@ public class AutoRefill extends Module {
         this.start = false;
         this.delay = 0L;
         this.lastMs = 0L;
+        this.manualPauseUntil = 0L;
     }
 
     @Override

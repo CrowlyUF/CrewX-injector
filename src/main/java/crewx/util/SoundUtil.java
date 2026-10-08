@@ -26,7 +26,8 @@ public class SoundUtil {
             if (activeToggleSound != null) {
                 soundHandler.stopSound(activeToggleSound);
             }
-            activeToggleSound = PositionedSoundRecord.create(new ResourceLocation(enabled ? "gui.button.press" : "random.click"));
+            activeToggleSound = PositionedSoundRecord.create(
+                    new ResourceLocation(enabled ? "gui.button.press" : "random.click"));
             soundHandler.playSound(activeToggleSound);
         }
     }
