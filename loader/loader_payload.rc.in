@@ -1,0 +1,2 @@
+#include <windows.h>
+422 RCDATA "@CREWX_EMBEDDED_DLL_RC_PATH@"
