@@ -22,7 +22,7 @@ import java.awt.Color;
 public class GuiModule extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
     private static GuiModule INSTANCE;
-    private static final Color FALLBACK_ACCENT = new Color(232, 42, 52);
+    private static final Color FALLBACK_ACCENT = new Color(54, 211, 142);
     private static final int DEFAULT_KEY = Keyboard.KEY_RSHIFT;
 
     private boolean openNextTick = false;
@@ -62,18 +62,20 @@ public class GuiModule extends Module {
             this.clickGui = new ClickGui();
         }
         mc.displayGuiScreen(this.clickGui);
+        if (crewx.inject.NotchMappings.isNotch()) {
+            crewx.inject.CrewXBootstrap.log("ClickGui displayGuiScreen: current="
+                    + (mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getName()));
+        }
     }
     public static Color getAccent() {
-        GuiModule instance = INSTANCE;
-        if (instance == null) return FALLBACK_ACCENT;
-
-        if (instance.colorMode.getValue() == 0) {
+        if (CrewX.moduleManager != null) {
             Module module = CrewX.moduleManager.modules.get(HUD.class);
             if (module instanceof HUD) {
                 return ((HUD) module).getColor(System.currentTimeMillis());
             }
         }
-        return new Color(instance.accentColor.getValue() & 0xFFFFFF);
+        GuiModule instance = INSTANCE;
+        return instance == null ? FALLBACK_ACCENT : new Color(instance.accentColor.getValue() & 0xFFFFFF);
     }
     public static int getBackgroundAlpha() {
         GuiModule instance = INSTANCE;

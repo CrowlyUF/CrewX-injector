@@ -382,7 +382,7 @@ public class Fly extends Module {
                 : this.hSpeed.getValue().doubleValue();
     }
 
-    /** True only while Kaizen has actually granted flight; pending activation is excluded. */
+
     public boolean isKaizenFlightActive() {
         return this.isEnabled()
                 && this.isKaizenMode

@@ -50,7 +50,7 @@ public class Accessories extends Module {
             if (stream == null) return null;
             BufferedImage image = ImageIO.read(stream);
             if (image == null) return null;
-            ResourceLocation texture = MC.renderEngine.getDynamicTextureLocation(
+            ResourceLocation texture = MC.getTextureManager().getDynamicTextureLocation(
                     "accessory_cape_" + index, new DynamicTexture(image));
             CAPE_CACHE.put(index, texture);
             return texture;

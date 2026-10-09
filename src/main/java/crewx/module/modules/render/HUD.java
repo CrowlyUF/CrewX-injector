@@ -20,7 +20,6 @@ import crewx.mixin.IAccessorGuiChat;
 import crewx.module.Module;
 import crewx.util.ColorUtil;
 import crewx.util.RenderUtil;
-import crewx.util.notifications.NotificationManager;
 import crewx.property.properties.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiChat;
@@ -121,7 +120,7 @@ public class HUD extends Module {
     public final IntProperty bindViewerOffsetY = new IntProperty("bind-viewer-offset-y", 0, -2000, 2000);
 
     public HUD() {
-        super("HUD", false, true);
+        super("HUD", true, true);
     }
 
     private String getModuleName(Module module) {
@@ -276,7 +275,6 @@ public class HUD extends Module {
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
-        NotificationManager.getManager().updateAndRender();
         if (this.chatOutline.getValue() && mc.currentScreen instanceof GuiChat) {
             String text = ((IAccessorGuiChat) mc.currentScreen).getInputField().getText().trim();
             if (CrewX.commandManager != null && CrewX.commandManager.isTypingCommand(text)) {

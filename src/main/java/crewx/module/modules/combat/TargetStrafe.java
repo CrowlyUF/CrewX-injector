@@ -29,7 +29,7 @@ import net.minecraft.util.AxisAlignedBB;
 
 import java.awt.Color;
 
-/** Keeps the player on a circular path around the active KillAura target. */
+
 public class TargetStrafe extends Module {
     private static final Minecraft MC = Minecraft.getMinecraft();
     private static final double TWO_PI = Math.PI * 2.0D;
@@ -172,8 +172,8 @@ public class TargetStrafe extends Module {
             this.direction *= -1;
         }
 
-        // Move along the circle tangent. Pointing at the next waypoint creates
-        // radial correction and is what previously pulled the player backward.
+
+
         double offsetX = MC.thePlayer.posX - this.target.posX;
         double offsetZ = MC.thePlayer.posZ - this.target.posZ;
         double distance = Math.sqrt(offsetX * offsetX + offsetZ * offsetZ);
@@ -187,8 +187,8 @@ public class TargetStrafe extends Module {
         double tangentX = this.direction > 0 ? -radialZ : radialZ;
         double tangentZ = this.direction > 0 ? radialX : -radialX;
         double radiusError = orbitRadius - distance;
-        // Tangent movement remains dominant; radial correction only keeps the
-        // actual player-to-target distance on the configured radius.
+
+
         double correction = Math.max(-0.85D, Math.min(0.85D, radiusError * 1.35D));
         double desiredX = tangentX + radialX * correction;
         double desiredZ = tangentZ + radialZ * correction;
@@ -201,8 +201,8 @@ public class TargetStrafe extends Module {
     @EventTarget
     public void onStrafe(StrafeEvent event) {
         if (this.isEnabled() && this.orbitActive && !Float.isNaN(this.targetYaw)) {
-            // Do not create movement: standing still must keep the player still.
-            // The original input is checked before replacing it with orbit input.
+
+
             if (Math.abs(event.getForward()) <= 0.01F && Math.abs(event.getStrafe()) <= 0.01F) {
                 event.setStrafe(0.0F);
                 event.setForward(0.0F);
@@ -216,8 +216,8 @@ public class TargetStrafe extends Module {
     @EventTarget(Priority.HIGHEST)
     public void onKnockback(KnockbackEvent event) {
         if (this.isEnabled() && this.mode.getValue() == 1) {
-            // Keep the module enabled, but invalidate its movement target until
-            // Fly Kaizen grants flight again.
+
+
             this.clearOrbit();
         }
     }

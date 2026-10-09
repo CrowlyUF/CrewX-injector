@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Compact, draggable list of configured module binds. */
+
 public final class BindViewer {
     private static final Minecraft MC = Minecraft.getMinecraft();
     private static final float PAD = 7.0F;

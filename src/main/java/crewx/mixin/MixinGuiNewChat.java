@@ -108,7 +108,7 @@ public abstract class MixinGuiNewChat {
     }
 
     private int crewx$panelAlpha(GuiNewChat chat, int updateCounter) {
-        if (chat.getChatOpen()) return 174;
+        if (chat.getChatOpen()) return 148;
         if (this.drawnChatLines == null || this.drawnChatLines.isEmpty()) return 0;
         int newestIndex = Math.min(this.drawnChatLines.size() - 1, Math.max(0, this.scrollPos));
         ChatLine newest = this.drawnChatLines.get(newestIndex);
@@ -117,6 +117,6 @@ public abstract class MixinGuiNewChat {
         fade = Math.max(0.0D, Math.min(1.0D, fade));
         fade *= fade;
         float opacity = Minecraft.getMinecraft().gameSettings.chatOpacity * 0.9F + 0.1F;
-        return Math.max(0, Math.min(220, (int) (174.0D * fade * opacity)));
+        return Math.max(0, Math.min(200, (int) (148.0D * fade * opacity)));
     }
 }

@@ -15,6 +15,10 @@ public class NotificationManager {
         return notifications;
     }
 
+    public void clear() {
+        this.notifications.clear();
+    }
+
     private NotificationManager() {
         instance = this;
     }

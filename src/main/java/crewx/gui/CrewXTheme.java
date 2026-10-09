@@ -6,6 +6,7 @@ import net.minecraft.client.renderer.GlStateManager;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.lang.reflect.Field;
 
 public final class CrewXTheme {
     public static final int BACKGROUND_TOP = 0xFF02040A;
@@ -18,8 +19,36 @@ public final class CrewXTheme {
     public static final int TEXT = 0xFFF1F2F8;
     public static final int MUTED = 0xFF9CA2BC;
     private static final Map<GuiButton, Float> HOVER_PROGRESS = new IdentityHashMap<GuiButton, Float>();
+    private static final Field BUTTON_HEIGHT_FIELD = findButtonHeight();
 
     private CrewXTheme() {
+    }
+
+    private static Field findButtonHeight() {
+        for (String name : new String[]{"height", "g"}) {
+            try {
+                Field field = GuiButton.class.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (ReflectiveOperationException | SecurityException ignored) {
+
+            }
+        }
+        return null;
+    }
+
+    private static int buttonHeight(GuiButton button) {
+        if (button instanceof CrewXMainMenu.MenuButton) {
+            return ((CrewXMainMenu.MenuButton) button).menuHeight();
+        }
+        if (BUTTON_HEIGHT_FIELD != null) {
+            try {
+                return BUTTON_HEIGHT_FIELD.getInt(button);
+            } catch (IllegalAccessException ignored) {
+
+            }
+        }
+        return 20;
     }
 
     public static void drawBackground(int width, int height) {
@@ -43,7 +72,7 @@ public final class CrewXTheme {
 
     public static void drawBranding(int width, int height) {
         GuiRender.textShadow("discord.gg/crackcrew", 12.0, 10.0, 0xD0C7CBEA);
-        GuiRender.textShadow("Made by Crowly & 4ever", 12.0, height - 18.0, 0x886D75A2);
+        GuiRender.textShadow("Made by Crowly, Forever & Shinra", 12.0, height - 18.0, 0x886D75A2);
     }
 
     public static void drawMainTitle(int width, int height) {
@@ -70,8 +99,14 @@ public final class CrewXTheme {
     public static void drawButton(GuiButton button, int mouseX, int mouseY) {
         if (!button.visible) return;
 
+
+        int buttonWidth = button instanceof CrewXMainMenu.MenuButton
+                ? ((CrewXMainMenu.MenuButton) button).menuWidth()
+                : button.getButtonWidth();
+        int buttonHeight = buttonHeight(button);
+
         boolean hovered = mouseX >= button.xPosition && mouseY >= button.yPosition
-                && mouseX < button.xPosition + button.width && mouseY < button.yPosition + button.height;
+                && mouseX < button.xPosition + buttonWidth && mouseY < button.yPosition + buttonHeight;
         float hover = updateHover(button, hovered);
         int background = button.enabled
                 ? GuiRender.mix(BUTTON_IDLE, BUTTON_HOVER, hover)
@@ -83,19 +118,19 @@ public final class CrewXTheme {
                 ? GuiRender.mix(0xFFD1D4E5, TEXT, hover)
                 : 0xFF6E7388;
 
-        GuiRender.roundedRect(button.xPosition, button.yPosition, button.width, button.height, 6.0, background);
-        GuiRender.roundedOutline(button.xPosition, button.yPosition, button.width, button.height, 6.0, 1.0f, border);
+        GuiRender.roundedRect(button.xPosition, button.yPosition, buttonWidth, buttonHeight, 6.0, background);
+        GuiRender.roundedOutline(button.xPosition, button.yPosition, buttonWidth, buttonHeight, 6.0, 1.0f, border);
         if (hover > 0.01f) {
             GuiRender.roundedRect(button.xPosition + 2.0, button.yPosition + 2.0,
-                    2.0 + 12.0 * hover, button.height - 4.0, 2.0,
+                    2.0 + 12.0 * hover, buttonHeight - 4.0, 2.0,
                     GuiRender.alpha(ACCENT, 0.35f * hover));
             GuiRender.roundedOutline(button.xPosition - 1.0, button.yPosition - 1.0,
-                    button.width + 2.0, button.height + 2.0, 7.0, 1.0f,
+                    buttonWidth + 2.0, buttonHeight + 2.0, 7.0, 1.0f,
                     GuiRender.alpha(BUTTON_BORDER_HOVER, hover * 0.55f));
         }
         double textOffset = hover * 1.5;
-        GuiRender.textCentered(button.displayString, button.xPosition + button.width / 2.0 + textOffset,
-                button.yPosition + (button.height - ClientFont.getHeight()) / 2.0, text);
+        GuiRender.textCentered(button.displayString, button.xPosition + buttonWidth / 2.0 + textOffset,
+                button.yPosition + (buttonHeight - ClientFont.getHeight()) / 2.0, text);
     }
 
     public static void drawScreenBackground(int width, int height) {

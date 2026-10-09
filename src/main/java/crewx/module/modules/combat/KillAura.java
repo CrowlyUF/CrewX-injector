@@ -121,8 +121,8 @@ public class KillAura extends Module {
                         && RotationUtil.rayTrace(this.target.getBox(), yaw, pitch, clampedRange) == null) {
                     return false;
                 } else {
-                    // Commit the cooldown only after the same raytrace used by
-                    // the server-facing attack has confirmed the hit.
+
+
                     this.attackDelayMS = this.attackDelayMS + this.getAttackDelay();
                     mc.thePlayer.swingItem();
                     AttackEvent event = new AttackEvent(this.target.getEntity());

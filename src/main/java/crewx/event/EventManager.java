@@ -1,5 +1,7 @@
 package crewx.event;
 
+import crewx.inject.CrewXAudit;
+import crewx.inject.CrewXBootstrap;
 import crewx.event.events.Event;
 import crewx.event.events.EventStoppable;
 import crewx.event.types.Priority;
@@ -11,10 +13,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class EventManager {
 
+    private static final boolean AUDIT = Boolean.getBoolean("crewx.audit");
     private static final HashMap<Class<? extends Event>, List<MethodData>> REGISTRY_MAP = new HashMap<>();
+    private static final Set<String> REPORTED_FAILURES = ConcurrentHashMap.newKeySet();
 
     private EventManager() {
     }
@@ -123,6 +129,7 @@ public final class EventManager {
     }
 
     public static Event call(final Event event) {
+        if (AUDIT) CrewXAudit.event(event);
         List<MethodData> dataList = REGISTRY_MAP.get(event.getClass());
         if (dataList != null) {
             if (event instanceof EventStoppable) {
@@ -144,9 +151,19 @@ public final class EventManager {
 
     private static void invoke(MethodData data, Event argument) {
         try {
+            if (AUDIT) CrewXAudit.handler(data.getSource(), data.getTarget(), argument);
             data.getTarget().invoke(data.getSource(), argument);
         } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-            e.printStackTrace();
+            if (AUDIT) CrewXAudit.failure(data.getSource(), data.getTarget(), e);
+            Throwable cause = e instanceof InvocationTargetException && e.getCause() != null
+                    ? e.getCause() : e;
+            String key = data.getSource().getClass().getName() + '#'
+                    + data.getTarget().getName() + ':' + cause.getClass().getName()
+                    + ':' + cause.getMessage();
+            if (REPORTED_FAILURES.add(key)) {
+                CrewXBootstrap.log("event handler FAILED " + key + " "
+                        + (cause.getStackTrace().length == 0 ? "" : cause.getStackTrace()[0]));
+            }
         }
     }
 

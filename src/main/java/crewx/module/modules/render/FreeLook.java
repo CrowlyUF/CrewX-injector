@@ -39,7 +39,7 @@ public final class FreeLook extends Module {
         this.changedPerspective = false;
     }
 
-    /** Called before camera input/rendering so activation from a saved config is handled too. */
+
     public void prepare(EntityPlayerSP player) {
         if (player == null || MC.gameSettings == null) return;
 
@@ -61,7 +61,7 @@ public final class FreeLook extends Module {
         this.prepare(player);
         if (!this.cameraInitialized) return;
 
-        // Match Entity.setAngles' sensitivity scaling, but keep the real player rotation untouched.
+
         this.cameraYaw += yawDelta * 0.15F;
         this.cameraPitch = MathHelper.clamp_float(this.cameraPitch + pitchDelta * 0.15F, -90.0F, 90.0F);
     }

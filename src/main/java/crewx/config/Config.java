@@ -9,6 +9,8 @@ import crewx.property.Property;
 import net.minecraft.client.Minecraft;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 
 public class Config {
@@ -17,15 +19,57 @@ public class Config {
     public String name;
     public File file;
 
-    public static String lastConfig;
+    public static String lastConfig = "default";
+    private static boolean loading;
+    private static boolean autoSaveReady;
+    private static long dirtyAt;
+
+    public static File directory() {
+        return new File(mc.mcDataDir, "config/CrewX");
+    }
+
+    private static boolean validName(String name) {
+        return name != null && name.matches("[A-Za-z0-9 _-]{1,80}");
+    }
+
+    public static String activeName() {
+        File marker = new File(directory(), ".active-config");
+        try {
+            String name = new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8).trim();
+            if (validName(name) && new File(directory(), name + ".json").isFile()) return name;
+        } catch (IOException ignored) {
+
+        }
+        return "default";
+    }
+
+    private void rememberActive() {
+        lastConfig = name;
+        try {
+            Files.write(new File(directory(), ".active-config").toPath(), name.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            ((IAccessorMinecraft) mc).getLogger().warn("Couldn't remember active CrewX config: " + e.getMessage());
+        }
+    }
+
+    public static void markDirty() {
+        if (autoSaveReady && !loading) dirtyAt = System.currentTimeMillis();
+    }
+
+
+    public static void flushPending() {
+        if (!autoSaveReady || loading || dirtyAt == 0L
+                || System.currentTimeMillis() - dirtyAt < 300L) return;
+        dirtyAt = 0L;
+        new Config(lastConfig, false).save(false);
+    }
 
     public Config(String name, boolean newConfig) {
-        this.name = name;
-        lastConfig = name;
-        if (name.equals("!") || name.equals("default")) {
-            this.name = "default";
-        }
-        this.file = new File("./config/CrewX/", String.format("%s.json", this.name));
+        this.name = "!".equals(name) ? "default" : name;
+        if (!validName(this.name)) throw new IllegalArgumentException("Invalid config name");
+
+
+        this.file = new File(directory(), String.format("%s.json", this.name));
         try {
             file.getParentFile().mkdirs();
             if (newConfig) {
@@ -37,18 +81,23 @@ public class Config {
     }
 
     public void load() {
+        this.load(false);
+    }
+
+    public boolean load(boolean resetTogglesToDefaults) {
+        loading = true;
         try {
 
             if (!file.exists()) {
                 ChatUtil.sendFormatted(String.format("%sConfig file not found (&c&o%s&r). Creating default config...&r", CrewX.clientName, file.getName()));
                 save();
-                return;
+                return false;
             }
 
             JsonElement parsed = new JsonParser().parse(new BufferedReader(new FileReader(file)));
             if (parsed == null || !parsed.isJsonObject()) {
                 ChatUtil.sendFormatted(String.format("%sInvalid config format (&c&o%s&r)&r", CrewX.clientName, file.getName()));
-                return;
+                return false;
             }
 
             JsonObject jsonObject = parsed.getAsJsonObject();
@@ -70,7 +119,7 @@ public class Config {
                         }
                     }
 
-                    if (object.has("toggled")) {
+                    if (object.has("toggled") && !resetTogglesToDefaults) {
                         JsonElement toggled = object.get("toggled");
                         if (toggled != null && toggled.isJsonPrimitive()) {
                             boolean want = toggled.getAsBoolean();
@@ -101,18 +150,31 @@ public class Config {
                 }
             }
             ChatUtil.sendFormatted(String.format("%sConfig has been loaded (&a&o%s&r)&r", CrewX.clientName, file.getName()));
+            rememberActive();
+            return true;
         } catch (FileNotFoundException e) {
             ChatUtil.sendFormatted(String.format("%sConfig file not found (&c&o%s&r)&r", CrewX.clientName, file.getName()));
+            return false;
         } catch (JsonSyntaxException e) {
             ChatUtil.sendFormatted(String.format("%sConfig has invalid JSON syntax (&c&o%s&r)&r", CrewX.clientName, file.getName()));
             ((IAccessorMinecraft) mc).getLogger().error("JSON Syntax Error: " + e.getMessage());
+            return false;
         } catch (Exception e) {
             ((IAccessorMinecraft) mc).getLogger().error("Error loading config: " + e.getMessage());
             ChatUtil.sendFormatted(String.format("%sConfig couldn't be loaded (&c&o%s&r)&r", CrewX.clientName, file.getName()));
+            return false;
+        } finally {
+            loading = false;
+            autoSaveReady = true;
+            dirtyAt = 0L;
         }
     }
 
     public void save() {
+        save(true);
+    }
+
+    private void save(boolean announce) {
         try {
             if (!file.getParentFile().exists()) {
                 file.getParentFile().mkdirs();
@@ -141,7 +203,8 @@ public class Config {
             PrintWriter printWriter = new PrintWriter(new FileWriter(file));
             printWriter.println(gson.toJson(object));
             printWriter.close();
-            ChatUtil.sendFormatted(String.format("%sConfig has been saved (&a&o%s&r)&r", CrewX.clientName, file.getName()));
+            rememberActive();
+            if (announce) ChatUtil.sendFormatted(String.format("%sConfig has been saved (&a&o%s&r)&r", CrewX.clientName, file.getName()));
         } catch (IOException e) {
             ((IAccessorMinecraft) mc).getLogger().error("Error saving config: " + e.getMessage());
             ChatUtil.sendFormatted(String.format("%sConfig couldn't be saved (&c&o%s&r)&r", CrewX.clientName, file.getName()));

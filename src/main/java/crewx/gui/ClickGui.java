@@ -1,6 +1,8 @@
 package crewx.gui;
 
 import crewx.CrewX;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import crewx.config.Config;
 import crewx.clickgui.render.RoundedUtils;
 import crewx.module.Module;
@@ -24,6 +26,13 @@ import java.io.File;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.Reader;
+import java.awt.EventQueue;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.util.Collections;
 import java.util.Locale;
 import java.io.InputStream;
@@ -38,6 +47,11 @@ import java.util.List;
 import java.util.Map;
 
 public class ClickGui extends GuiScreen {
+    private static volatile long drawCount;
+
+    public static long getDrawCount() {
+        return drawCount;
+    }
     private static final ModuleCategory[] CATEGORIES = ModuleCategory.values();
     private static final int CONFIG_ROW_HEIGHT = 34;
     private static final int DRAG_NONE = 0;
@@ -50,21 +64,21 @@ public class ClickGui extends GuiScreen {
         CONFIGS
     }
 
-    private static final int HEADER_HEIGHT = 40;
-    private static final int FOOTER_HEIGHT = 22;
-    private static final int MODULE_ROW_HEIGHT = 31;
+    private static final int HEADER_HEIGHT = 42;
+    private static final int FOOTER_HEIGHT = 12;
+    private static final int MODULE_ROW_HEIGHT = 28;
     private static final int SETTING_HEIGHT = 26;
     private static final int OPTION_HEIGHT = 18;
     private static final int PICKER_HEIGHT = 54;
-    private static final Color SIDEBAR = new Color(5, 5, 5, 255);
-    private static final Color PANEL = new Color(9, 9, 9, 255);
-    private static final Color PANEL_ALT = new Color(12, 12, 12, 255);
-    private static final Color ROW = new Color(20, 20, 20, 255);
-    private static final Color ROW_HOVER = new Color(29, 29, 29, 255);
+    private static final Color SIDEBAR = new Color(13, 13, 13, 255);
+    private static final Color PANEL = new Color(8, 8, 8, 255);
+    private static final Color PANEL_ALT = new Color(11, 11, 11, 255);
+    private static final Color ROW = new Color(19, 19, 19, 255);
+    private static final Color ROW_HOVER = new Color(27, 27, 27, 255);
     private static final Color TEXT = new Color(220, 220, 220);
     private static final Color MUTED = new Color(132, 132, 132);
-    private static final Color TRACK = new Color(49, 49, 49);
-    private static final float WINDOW_RADIUS = 3.0F;
+    private static final Color TRACK = new Color(42, 42, 42);
+    private static final float WINDOW_RADIUS = 11.0F;
     private static final float OPEN_SPEED = 7.0F;
     private static final float CLOSE_SPEED = 10.0F;
     private static final String CREWX_LOGO = "/assets/crewx/icons/crewx_logo.png";
@@ -93,6 +107,8 @@ public class ClickGui extends GuiScreen {
     private final List<File> savedConfigs = new ArrayList<File>();
     private File pendingConfigClick;
     private String selectedConfigName = "";
+    private String configImportStatus = "";
+    private long configImportStatusUntil;
     private Module pendingModuleClick;
     private boolean pendingModuleSettingsHit;
     private boolean pendingModuleToggleHit;
@@ -139,6 +155,9 @@ public class ClickGui extends GuiScreen {
     private float targetConfigScroll;
     private float centerX;
     private float centerY;
+    private float uiScale = 1.0F;
+    private float virtualWidth;
+    private float virtualHeight;
     private float renderScale = 1.0F;
     private float renderOffsetY;
     private float alphaMultiplier = 1.0F;
@@ -149,7 +168,7 @@ public class ClickGui extends GuiScreen {
     private final long openedAt = System.currentTimeMillis();
 
     public ClickGui() {
-        this.selectFirstModule();
+        this.selectedModule = null;
     }
 
     @Override
@@ -159,9 +178,7 @@ public class ClickGui extends GuiScreen {
         this.lastFrame = 0L;
         this.computeLayout();
         this.refreshConfigs();
-        if (this.selectedModule == null) {
-            this.selectFirstModule();
-        }
+
     }
 
     @Override
@@ -171,9 +188,16 @@ public class ClickGui extends GuiScreen {
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        ++drawCount;
+        if (!this.firstFrameLogged) {
+            this.firstFrameLogged = true;
+            crewx.inject.CrewXBootstrap.log("ClickGui first drawScreen: "
+                    + this.width + "x" + this.height + " mouse=" + mouseX + "," + mouseY);
+        }
         long now = System.nanoTime();
         float dt = this.lastFrame == 0L ? 0.016F : (now - this.lastFrame) / 1.0e9F;
         this.lastFrame = now;
+        BlurController.ensureBlur();
         this.deltaTime = Math.max(0.0F, Math.min(0.1F, dt));
         this.animationStep();
         if (this.closing && this.animation <= 0.0F) {
@@ -188,8 +212,8 @@ public class ClickGui extends GuiScreen {
         this.lastMouseY = virtualMouseY;
 
         if (this.draggingWindow) {
-            this.windowOffsetX = virtualMouseX - this.dragMouseOffsetX - (this.width - this.windowWidth) / 2.0F;
-            this.windowOffsetY = virtualMouseY - this.dragMouseOffsetY - (this.height - this.windowHeight) / 2.0F;
+            this.windowOffsetX = virtualMouseX - this.dragMouseOffsetX - (this.virtualWidth - this.windowWidth) / 2.0F;
+            this.windowOffsetY = virtualMouseY - this.dragMouseOffsetY - (this.virtualHeight - this.windowHeight) / 2.0F;
             this.computeLayout();
         }
         if (this.draggingSetting != null) {
@@ -203,12 +227,13 @@ public class ClickGui extends GuiScreen {
         this.updateScroll();
         this.updateAnimations();
         this.alphaMultiplier = this.closing ? this.animation * this.animation : this.animation;
-        this.centerX = this.width / 2.0F;
-        this.centerY = this.height / 2.0F;
+        this.centerX = this.virtualWidth / 2.0F;
+        this.centerY = this.virtualHeight / 2.0F;
         this.scissorStack.clear();
         this.drawGradientRect(0, 0, this.width, this.height, this.fade(0x1E000000), this.fade(0x1E000000));
 
         GlStateManager.pushMatrix();
+        GlStateManager.scale(this.uiScale, this.uiScale, 1.0F);
         GlStateManager.translate(this.centerX, this.centerY, 0.0F);
         GlStateManager.scale(this.renderScale, this.renderScale, 1.0F);
         GlStateManager.translate(-this.centerX, -this.centerY + this.renderOffsetY, 0.0F);
@@ -218,6 +243,7 @@ public class ClickGui extends GuiScreen {
     }
 
     private float animation;
+    private boolean firstFrameLogged;
 
     private void animationStep() {
         this.animation += (this.closing ? -CLOSE_SPEED : OPEN_SPEED) * this.deltaTime;
@@ -227,57 +253,55 @@ public class ClickGui extends GuiScreen {
     }
 
     private void computeLayout() {
-        this.centerX = this.width / 2.0F;
-        this.centerY = this.height / 2.0F;
-        float availableWidth = Math.max(1.0F, this.width - 12.0F);
-        float availableHeight = Math.max(1.0F, this.height - 12.0F);
-        float preferredWidth = Math.max(Math.min(280.0F, availableWidth), this.width * 0.58F);
-        float preferredHeight = Math.max(Math.min(210.0F, availableHeight), this.height * 0.65F);
-        this.windowWidth = Math.min(820.0F, Math.min(availableWidth, preferredWidth));
-        this.windowHeight = Math.min(470.0F, Math.min(availableHeight, preferredHeight));
-        this.windowX = (this.width - this.windowWidth) / 2.0F + this.windowOffsetX;
-        this.windowY = (this.height - this.windowHeight) / 2.0F + this.windowOffsetY;
-        this.windowX = Math.max(0.0F, Math.min(this.width - this.windowWidth, this.windowX));
-        this.windowY = Math.max(0.0F, Math.min(this.height - this.windowHeight, this.windowY));
-        this.sidebarWidth = Math.min(136.0F, Math.max(40.0F, this.windowWidth * 0.20F));
-        this.modulePaneWidth = Math.min(230.0F, Math.max(62.0F, this.windowWidth * 0.31F));
-        float minimumSettingsWidth = Math.min(112.0F, this.windowWidth * 0.34F);
-        if (this.windowWidth - this.sidebarWidth - this.modulePaneWidth < minimumSettingsWidth) {
-            this.sidebarWidth = this.windowWidth * 0.20F;
-            this.modulePaneWidth = this.windowWidth * 0.35F;
+
+        this.uiScale = Math.min(1.0F, Math.min(this.width / 800.0F, this.height / 450.0F));
+        this.virtualWidth = this.width / this.uiScale;
+        this.virtualHeight = this.height / this.uiScale;
+        this.centerX = this.virtualWidth / 2.0F;
+        this.centerY = this.virtualHeight / 2.0F;
+        float availableWidth = Math.max(1.0F, this.virtualWidth - 16.0F);
+        float availableHeight = Math.max(1.0F, this.virtualHeight - 16.0F);
+        float preferredWidth = Math.max(Math.min(350.0F, availableWidth), this.virtualWidth * 0.48F);
+        float preferredHeight = Math.max(Math.min(250.0F, availableHeight), this.virtualHeight * 0.62F);
+        this.windowWidth = Math.min(760.0F, Math.min(availableWidth, preferredWidth));
+        this.windowHeight = Math.min(430.0F, Math.min(availableHeight, preferredHeight));
+        this.windowX = (this.virtualWidth - this.windowWidth) / 2.0F + this.windowOffsetX;
+        this.windowY = (this.virtualHeight - this.windowHeight) / 2.0F + this.windowOffsetY;
+        this.windowX = Math.max(0.0F, Math.min(this.virtualWidth - this.windowWidth, this.windowX));
+        this.windowY = Math.max(0.0F, Math.min(this.virtualHeight - this.windowHeight, this.windowY));
+        if (this.windowWidth < 260.0F) {
+            this.sidebarWidth = this.windowWidth * 0.40F;
+        } else {
+            this.sidebarWidth = Math.min(190.0F, Math.max(104.0F, this.windowWidth * 0.29F));
         }
-        this.settingsX = this.windowX + this.sidebarWidth + this.modulePaneWidth;
+        this.modulePaneWidth = Math.max(0.0F, this.windowWidth - this.sidebarWidth);
+        this.settingsX = this.windowX + this.windowWidth;
         this.bodyY = this.windowY + HEADER_HEIGHT;
         this.bodyHeight = Math.max(0.0F, this.windowHeight - HEADER_HEIGHT - FOOTER_HEIGHT);
-        this.searchY = this.bodyY + 34.0F;
-        this.moduleListY = this.searchY + 27.0F;
-        this.settingsListY = this.bodyY + (this.windowHeight < 260.0F ? 58.0F : 67.0F);
-        this.settingsListHeight = Math.max(0.0F, this.windowY + this.windowHeight - FOOTER_HEIGHT - this.settingsListY - 7.0F);
-        this.configListY = this.bodyY + 40.0F;
-        this.configListHeight = Math.max(0.0F, this.windowY + this.windowHeight - FOOTER_HEIGHT - this.configListY - 8.0F);
+        this.searchY = this.bodyY + 31.0F;
+        this.moduleListY = this.searchY + 28.0F;
+        this.settingsListY = this.moduleListY;
+        this.settingsListHeight = Math.max(0.0F, this.bodyY + this.bodyHeight - this.settingsListY - 6.0F);
+        this.configListY = this.bodyY + 45.0F;
+        this.configListHeight = Math.max(0.0F, this.windowY + this.windowHeight - FOOTER_HEIGHT - this.configListY - 7.0F);
     }
 
     private void updateScroll() {
         List<Module> modules = this.getVisibleModules();
         float moduleContent = modules.size() * MODULE_ROW_HEIGHT;
-        float moduleVisible = this.bodyY + this.bodyHeight - this.moduleListY - 8.0F;
+        if (this.selectedModule != null && modules.contains(this.selectedModule)) moduleContent += this.expandedSettingsHeight();
+        float moduleVisible = this.bodyY + this.bodyHeight - this.moduleListY - 5.0F;
         float maxModule = Math.max(0.0F, moduleContent - moduleVisible);
         this.targetModuleScroll = Math.max(0.0F, Math.min(this.targetModuleScroll, maxModule));
         this.moduleScroll += (this.targetModuleScroll - this.moduleScroll) * Math.min(1.0F, this.deltaTime * 14.0F);
-
-        float settingsContent = 0.0F;
-        for (SettingComponent setting : this.settingComponents) {
-            if (setting.property.isVisible()) settingsContent += setting.getHeight();
-        }
-        float maxSettings = Math.max(0.0F, settingsContent - this.settingsListHeight + 5.0F);
-        this.targetSettingsScroll = Math.max(0.0F, Math.min(this.targetSettingsScroll, maxSettings));
-        this.settingsScroll += (this.targetSettingsScroll - this.settingsScroll) * Math.min(1.0F, this.deltaTime * 14.0F);
-
+        float settingsContent = this.propertyContentHeight();
+        this.settingsListHeight = settingsContent;
+        this.settingsScroll = 0.0F;
+        this.targetSettingsScroll = 0.0F;
         float configContent = this.savedConfigs.size() * CONFIG_ROW_HEIGHT;
         float maxConfigs = Math.max(0.0F, configContent - this.configListHeight + 4.0F);
         this.targetConfigScroll = Math.max(0.0F, Math.min(this.targetConfigScroll, maxConfigs));
         this.configScroll += (this.targetConfigScroll - this.configScroll) * Math.min(1.0F, this.deltaTime * 14.0F);
-
     }
 
     private void updateAnimations() {
@@ -289,12 +313,10 @@ public class ClickGui extends GuiScreen {
         for (int index = 0; index < visibleCount; index++) {
             Module module = visibleModules.get(index);
             float hover = this.hoverAnimations.containsKey(module) ? this.hoverAnimations.get(module).floatValue() : 0.0F;
+            float rowTop = this.moduleRowTop(module);
             boolean hovered = this.lastMouseX >= this.windowX + this.sidebarWidth + 8.0F
-                    && this.lastMouseX <= this.settingsX - 8.0F
-                    && this.lastMouseY >= this.moduleListY - this.moduleScroll
-                    && this.lastMouseY <= this.moduleListY - this.moduleScroll + visibleCount * MODULE_ROW_HEIGHT;
-            float rowTop = this.moduleListY + index * MODULE_ROW_HEIGHT - this.moduleScroll;
-            hovered = hovered && this.lastMouseY >= rowTop && this.lastMouseY <= rowTop + MODULE_ROW_HEIGHT - 3;
+                    && this.lastMouseX <= this.windowX + this.windowWidth - 8.0F
+                    && this.lastMouseY >= rowTop && this.lastMouseY <= rowTop + MODULE_ROW_HEIGHT - 3;
             this.hoverAnimations.put(module, approach(hover, hovered ? 1.0F : 0.0F, this.deltaTime, 12.0F));
             float enabled = this.enabledAnimations.containsKey(module) ? this.enabledAnimations.get(module).floatValue() : 0.0F;
             this.enabledAnimations.put(module, approach(enabled, module.isEnabled() ? 1.0F : 0.0F, this.deltaTime, 13.0F));
@@ -303,38 +325,37 @@ public class ClickGui extends GuiScreen {
 
     private void renderWindow(float mouseX, float mouseY) {
         this.round(this.windowX, this.windowY, this.windowWidth, this.windowHeight,
-                new Color(0, 0, 0, GuiModule.getBackgroundAlpha()).getRGB(), WINDOW_RADIUS);
-        this.round(this.windowX + 1.0F, this.windowY + 1.0F, this.windowWidth - 2.0F, HEADER_HEIGHT - 1.0F,
-                new Color(6, 6, 6, 255).getRGB(), WINDOW_RADIUS);
+                new Color(5, 5, 5, GuiModule.getBackgroundAlpha()).getRGB(), WINDOW_RADIUS);
+        this.round(this.windowX + 1.0F, this.windowY + 1.0F, this.windowWidth - 2.0F, this.windowHeight - 2.0F,
+                new Color(14, 14, 14, 255).getRGB(), WINDOW_RADIUS - 1.0F);
+        this.round(this.windowX + 1.0F, this.windowY + 1.0F, this.windowWidth - 2.0F, HEADER_HEIGHT,
+                new Color(17, 17, 17, 255).getRGB(), WINDOW_RADIUS - 1.0F);
         if (this.activeTab == ViewTab.MODULES) {
-            this.round(this.windowX, this.bodyY, this.sidebarWidth, this.bodyHeight, SIDEBAR.getRGB(), 0.0F);
-            this.round(this.windowX + this.sidebarWidth, this.bodyY, this.modulePaneWidth, this.bodyHeight, PANEL.getRGB(), 0.0F);
-            this.round(this.settingsX, this.bodyY, this.windowWidth - this.sidebarWidth - this.modulePaneWidth,
-                    this.bodyHeight, PANEL_ALT.getRGB(), 0.0F);
-            this.round(this.windowX + this.sidebarWidth, this.bodyY, 1.0F, this.bodyHeight, new Color(36, 36, 36, 255).getRGB(), 0.0F);
-            this.round(this.settingsX, this.bodyY, 1.0F, this.bodyHeight, new Color(36, 36, 36, 255).getRGB(), 0.0F);
+            this.round(this.windowX + 1.0F, this.bodyY, this.sidebarWidth, this.bodyHeight,
+                    new Color(13, 13, 13, 255).getRGB(), 0.0F);
+            this.round(this.windowX + this.sidebarWidth, this.bodyY, this.modulePaneWidth, this.bodyHeight,
+                    new Color(8, 8, 8, 255).getRGB(), 0.0F);
+            this.round(this.windowX + this.sidebarWidth, this.bodyY + 8.0F, 1.0F,
+                    Math.max(0.0F, this.bodyHeight - 16.0F), new Color(30, 30, 30, 255).getRGB(), 0.0F);
         } else {
-            this.round(this.windowX, this.bodyY, this.windowWidth, this.bodyHeight, PANEL.getRGB(), 0.0F);
+            this.round(this.windowX + 1.0F, this.bodyY, this.windowWidth - 2.0F, this.bodyHeight,
+                    new Color(8, 8, 8, 255).getRGB(), 0.0F);
         }
-        this.round(this.windowX, this.windowY + this.windowHeight - FOOTER_HEIGHT,
-                this.windowWidth, FOOTER_HEIGHT, new Color(5, 5, 5, 255).getRGB(), 0.0F);
-
         this.renderHeader();
         if (this.activeTab == ViewTab.CONFIGS) {
             this.renderConfigsPane(mouseX, mouseY);
         } else {
             this.renderSidebar(mouseX, mouseY);
             this.renderModulePane(mouseX, mouseY);
-            this.renderSettingsPane(mouseX, mouseY);
         }
         this.renderFooter();
     }
 
     private void renderHeader() {
         boolean compactHeader = this.windowWidth < 200.0F;
-        float logoX = this.windowX + (compactHeader ? 8.0F : 11.0F);
-        float logoY = this.windowY + (compactHeader ? 12.0F : 7.0F);
-        int logoSize = compactHeader ? 16 : 25;
+        float logoX = this.windowX + (this.windowWidth < 110.0F ? 5.0F : compactHeader ? 8.0F : 11.0F);
+        int logoSize = this.windowWidth < 110.0F ? 10 : compactHeader ? 16 : 25;
+        float logoY = this.windowY + (HEADER_HEIGHT - logoSize) / 2.0F;
         this.drawLogo(logoX, logoY, logoSize);
         if (!compactHeader) this.text("CREWX", logoX + 31.0F, this.windowY + 15.0F, TEXT.getRGB());
 
@@ -342,23 +363,23 @@ public class ClickGui extends GuiScreen {
         String configsLabel = this.headerLabel(ViewTab.CONFIGS);
         this.drawHeaderTab(modulesLabel, this.modulesTabX(), this.activeTab == ViewTab.MODULES);
         this.drawHeaderTab(configsLabel, this.configsTabX(), this.activeTab == ViewTab.CONFIGS);
-        if (this.windowWidth >= 370.0F) {
-            String closeHint = "ESC";
-            this.text(closeHint, this.windowX + this.windowWidth - FONT.getStringWidth(closeHint) - 12.0F,
-                    this.windowY + 15.0F, MUTED.getRGB());
-        }
     }
 
     private float modulesTabX() {
+        if (this.windowWidth < 110.0F) return this.windowX + 20.0F;
         if (this.windowWidth < 200.0F) return this.windowX + 31.0F;
         return this.windowX + Math.max(82.0F, Math.min(94.0F, this.windowWidth * 0.34F));
     }
 
     private float configsTabX() {
-        return this.modulesTabX() + FONT.getStringWidth(this.headerLabel(ViewTab.MODULES)) + 8.0F;
+        float gap = this.windowWidth < 110.0F ? 4.0F : this.windowWidth < 200.0F ? 6.0F : 8.0F;
+        return this.modulesTabX() + FONT.getStringWidth(this.headerLabel(ViewTab.MODULES)) + gap;
     }
 
     private String headerLabel(ViewTab tab) {
+        if (this.windowWidth < 150.0F) {
+            return tab == ViewTab.MODULES ? "M" : "C";
+        }
         if (this.windowWidth < 360.0F) {
             if (tab == ViewTab.MODULES) return "MOD";
             if (tab == ViewTab.CONFIGS) return "CFG";
@@ -414,8 +435,8 @@ public class ClickGui extends GuiScreen {
     }
 
     private float categoryNavStep() {
-        float navHeight = this.bodyHeight < 140.0F ? this.bodyHeight - 34.0F : this.bodyHeight - 57.0F;
-        return Math.max(10.0F, Math.min(29.0F, navHeight / CATEGORIES.length));
+        float navHeight = Math.max(0.0F, this.bodyHeight - 60.0F);
+        return Math.max(9.0F, Math.min(35.0F, navHeight / Math.max(1, CATEGORIES.length)));
     }
 
     private String trimToWidth(String value, int maxWidth) {
@@ -430,88 +451,101 @@ public class ClickGui extends GuiScreen {
     private void renderSidebar(float mouseX, float mouseY) {
         float x = this.windowX;
         float y = this.bodyY;
-        this.text("CATEGORIES", x + 8.0F, y + 7.0F, MUTED.getRGB());
-        float navY = y + (this.bodyHeight < 140.0F ? 18.0F : 26.0F);
+        this.text("CATEGORIES", x + 14.0F, y + 10.0F, MUTED.getRGB());
+        float navY = y + 29.0F;
         float navStep = this.categoryNavStep();
         for (ModuleCategory category : CATEGORIES) {
             boolean selected = category == this.selectedCategory;
-            boolean hover = mouseX >= x + 5.0F && mouseX <= x + this.sidebarWidth - 5.0F
-                    && mouseY >= navY && mouseY <= navY + navStep - 2.0F;
+            boolean hover = mouseX >= x + 7.0F && mouseX <= x + this.sidebarWidth - 7.0F
+                    && mouseY >= navY && mouseY <= navY + navStep - 3.0F;
+            float rowHeight = Math.max(2.0F, navStep - 3.0F);
+            float rowY = navY + (navStep - rowHeight) / 2.0F;
             if (selected || hover) {
-                this.round(x + 6.0F, navY, this.sidebarWidth - 12.0F, navStep - 2.0F,
-                        selected ? new Color(27, 27, 27, 255).getRGB() : new Color(17, 17, 17, 255).getRGB(), 2.0F);
+                this.round(x + 8.0F, rowY, Math.max(0.0F, this.sidebarWidth - 16.0F), rowHeight,
+                        selected ? lerpColor(new Color(12, 12, 12, 255).getRGB(), accentColor().getRGB(), 0.25F) : new Color(21, 21, 21, 255).getRGB(),
+                        Math.min(7.0F, rowHeight / 2.0F));
             }
-            if (selected) this.round(x + 6.0F, navY + 4.0F, 2.0F, Math.max(8.0F, navStep - 10.0F), accentColor().getRGB(), 0.0F);
-            int iconColor = selected
-                    ? (category == ModuleCategory.PLAYER ? Color.WHITE.getRGB() : accentColor().brighter().getRGB())
-                    : MUTED.getRGB();
-            float iconSize = Math.max(10.0F, Math.min(16.0F, navStep - 1.0F));
-            this.drawCategoryIcon(category, x + Math.min(22.0F, this.sidebarWidth / 2.0F),
-                    navY + (navStep - 2.0F) / 2.0F, iconColor, iconSize);
-            if (this.sidebarWidth >= 88.0F) {
-                this.text(category.getDisplayName(), x + 36.0F,
-                        navY + navStep / 2.0F - 1.0F - FONT.getFontHeight() / 2.0F,
-                        selected ? TEXT.getRGB() : MUTED.getRGB());
+            if (selected) {
+                float markerHeight = Math.max(2.0F, Math.min(rowHeight - 2.0F, navStep - 8.0F));
+                this.round(x + 8.0F, navY + (navStep - markerHeight) / 2.0F, 2.0F, markerHeight,
+                        accentColor().getRGB(), 1.0F);
             }
-            int activeCount = 0;
-            for (Module module : this.getModules(category)) if (module.isEnabled()) activeCount++;
-            if (activeCount > 0 && this.sidebarWidth >= 112.0F) {
-                String count = String.valueOf(activeCount);
-                int countWidth = FONT.getStringWidth(count);
-                this.text(count, x + this.sidebarWidth - countWidth - 12.0F,
-                        navY + navStep / 2.0F - 1.0F - FONT.getFontHeight() / 2.0F, MUTED.getRGB());
+            boolean compactRows = this.windowWidth < 360.0F || navStep < 18.0F;
+            String categoryLabel = category.getDisplayName();
+            if (this.windowWidth < 150.0F && categoryLabel.length() > 2) {
+                categoryLabel = categoryLabel.substring(0, 2).toUpperCase(Locale.ROOT);
+            }
+            if (!compactRows) {
+                int iconColor = selected ? Color.WHITE.getRGB() : MUTED.getRGB();
+                this.drawCategoryIcon(category, x + 25.0F, navY + navStep / 2.0F, iconColor, 15.0F);
+            }
+            float labelX = compactRows ? x + 18.0F : x + 43.0F;
+            int labelWidth = (int) Math.max(0.0F, this.sidebarWidth - (compactRows ? 26.0F : 75.0F));
+            this.text(this.trimToWidth(categoryLabel, labelWidth), labelX,
+                    navY + Math.max(0.0F, (navStep - FONT.getFontHeight()) / 2.0F),
+                    selected ? Color.WHITE.getRGB() : TEXT.getRGB());
+            if (!compactRows) {
+                int activeCount = 0;
+                for (Module module : this.getModules(category)) if (module.isEnabled()) activeCount++;
+                if (activeCount > 0) {
+                    String count = String.valueOf(activeCount);
+                    this.text(count, x + this.sidebarWidth - FONT.getStringWidth(count) - 17.0F,
+                            navY + Math.max(0.0F, (navStep - FONT.getFontHeight()) / 2.0F),
+                            selected ? Color.WHITE.getRGB() : MUTED.getRGB());
+                }
             }
             navY += navStep;
         }
-        if (this.bodyHeight < 140.0F) return;
-        float dividerY = this.windowY + this.windowHeight - FOOTER_HEIGHT - 31.0F;
-        this.round(x + 11.0F, dividerY, this.sidebarWidth - 22.0F, 1.0F,
-                new Color(37, 37, 37, 255).getRGB(), 0.0F);
+        float dividerY = this.windowY + this.windowHeight - FOOTER_HEIGHT - 30.0F;
+        this.round(x + 14.0F, dividerY, this.sidebarWidth - 28.0F, 1.0F,
+                new Color(44, 44, 44, 255).getRGB(), 0.0F);
     }
 
     private void renderModulePane(float mouseX, float mouseY) {
         float x = this.windowX + this.sidebarWidth;
         float width = this.modulePaneWidth;
-        float contentX = x + 9.0F;
+        float contentX = x + 13.0F;
         List<Module> visible = this.getVisibleModules();
+        float headingWidth = width < 155.0F ? Math.max(0.0F, width - 20.0F)
+                : width - FONT.getStringWidth(String.valueOf(visible.size()) + " MODULES") - 28.0F;
+        String categoryHeading = this.trimToWidth(this.selectedCategory.getDisplayName().toUpperCase(Locale.ROOT),
+                (int) Math.max(0.0F, headingWidth));
+        this.text(categoryHeading, contentX + 1.0F, this.bodyY + 10.0F, TEXT.getRGB());
         String count = String.valueOf(visible.size());
-        boolean showCount = width >= 74.0F;
-        String heading = this.trimToWidth("MODULES", (int) (width - (showCount ? 36.0F : 20.0F)));
-        this.text(heading, contentX + 2.0F, this.bodyY + 12.0F, MUTED.getRGB());
-        if (showCount) {
-            this.text(count, x + width - FONT.getStringWidth(count) - 12.0F, this.bodyY + 12.0F, MUTED.getRGB());
+        if (width >= 155.0F) {
+            this.text(count + " MODULES", x + width - FONT.getStringWidth(count + " MODULES") - 15.0F,
+                    this.bodyY + 10.0F, MUTED.getRGB());
         }
-
-        float searchWidth = width - 18.0F;
+        float searchWidth = width - 26.0F;
         boolean searchHover = mouseX >= contentX && mouseX <= contentX + searchWidth
-                && mouseY >= this.searchY && mouseY <= this.searchY + 22.0F;
-        this.round(contentX, this.searchY, searchWidth, 22.0F,
-                this.searchFocused ? new Color(22, 22, 22, 255).getRGB() : new Color(15, 15, 15, 255).getRGB(), 2.0F);
-        if (this.searchFocused) {
-            this.round(contentX, this.searchY + 21.0F, searchWidth, 1.0F, accentColor().getRGB(), 0.0F);
-        } else if (searchHover) {
-            this.round(contentX, this.searchY + 21.0F, searchWidth, 1.0F, new Color(68, 68, 68, 255).getRGB(), 0.0F);
-        }
-        this.drawSearchIcon(contentX + 4.0F, this.searchY + 4.0F, MUTED.getRGB());
-        String query = this.searchText.isEmpty() && !this.searchFocused ? "Search modules" : this.searchText + (this.searchFocused ? "_" : "");
-        int queryWidth = Math.max(0, (int) searchWidth - (this.searchText.isEmpty() ? 34 : 47));
-        this.text(this.trimToWidth(query, queryWidth), contentX + 22.0F,
-                this.searchY + (22.0F - FONT.getFontHeight()) / 2.0F,
+                && mouseY >= this.searchY && mouseY <= this.searchY + 23.0F;
+        this.round(contentX, this.searchY, searchWidth, 23.0F,
+                this.searchFocused ? new Color(19, 19, 19, 255).getRGB() : new Color(14, 14, 14, 255).getRGB(), 7.0F);
+        if (this.searchFocused || searchHover) this.round(contentX + 8.0F, this.searchY + 22.0F,
+                searchWidth - 16.0F, 1.0F, this.searchFocused ? accentColor().getRGB() : new Color(70, 70, 70, 255).getRGB(), 0.0F);
+        this.drawSearchIcon(contentX + 7.0F, this.searchY + 5.0F, MUTED.getRGB());
+        String query = this.searchText.isEmpty() && !this.searchFocused ? "Search modules..." : this.searchText + (this.searchFocused ? "_" : "");
+        this.text(this.trimToWidth(query, Math.max(0, (int) searchWidth - 43)), contentX + 27.0F,
+                this.searchY + (23.0F - FONT.getFontHeight()) / 2.0F,
                 this.searchText.isEmpty() && !this.searchFocused ? MUTED.getRGB() : TEXT.getRGB());
-        if (!this.searchText.isEmpty()) this.drawIcon(CLEAR_ICON, contentX + searchWidth - 15.0F,
-                this.searchY + 6.0F, 10, MUTED.getRGB());
-
+        if (!this.searchText.isEmpty()) this.drawIcon(CLEAR_ICON, contentX + searchWidth - 17.0F, this.searchY + 6.0F, 11, MUTED.getRGB());
         float visibleHeight = Math.max(0.0F, this.bodyY + this.bodyHeight - this.moduleListY - 5.0F);
-        this.scissorOn(x + 5.0F, this.moduleListY, width - 10.0F, visibleHeight);
+        this.scissorOn(x + 6.0F, this.moduleListY, width - 12.0F, visibleHeight);
         float rowY = this.moduleListY - this.moduleScroll;
         for (Module module : visible) {
-            this.renderModuleRow(module, x + 6.0F, rowY, width - 12.0F, mouseX, mouseY);
+            this.renderModuleRow(module, x + 10.0F, rowY, width - 20.0F, mouseX, mouseY);
             rowY += MODULE_ROW_HEIGHT;
+            if (module == this.selectedModule) {
+                this.settingsListY = rowY + 25.0F;
+                this.settingsListHeight = this.propertyContentHeight();
+                this.renderInlineSettings(module, x + 10.0F, rowY, width - 20.0F, mouseX, mouseY);
+                rowY += this.expandedSettingsHeight();
+            }
         }
         this.scissorOff();
-
         float contentHeight = visible.size() * MODULE_ROW_HEIGHT;
-        if (contentHeight > visibleHeight) this.drawScrollbar(x + width - 3.0F, this.moduleListY, visibleHeight, contentHeight, this.moduleScroll);
+        if (this.selectedModule != null && visible.contains(this.selectedModule)) contentHeight += this.expandedSettingsHeight();
+        if (contentHeight > visibleHeight) this.drawScrollbar(x + width - 4.0F, this.moduleListY, visibleHeight, contentHeight, this.moduleScroll);
         if (visible.isEmpty()) this.text("No modules found", contentX + 5.0F, this.moduleListY + 15.0F, MUTED.getRGB());
     }
 
@@ -520,107 +554,91 @@ public class ClickGui extends GuiScreen {
         float hover = this.hoverAnimations.containsKey(module) ? this.hoverAnimations.get(module).floatValue() : 0.0F;
         float enabled = this.enabledAnimations.containsKey(module) ? this.enabledAnimations.get(module).floatValue() : (module.isEnabled() ? 1.0F : 0.0F);
         boolean selected = module == this.selectedModule;
-        int bg = selected ? new Color(27, 27, 27, 255).getRGB() : lerpColor(PANEL.getRGB(), ROW_HOVER.getRGB(), hover);
-        this.round(x, y + 1.0F, width, MODULE_ROW_HEIGHT - 3.0F, bg, 2.0F);
-        if (selected) this.round(x, y + 5.0F, 2.0F, MODULE_ROW_HEIGHT - 11.0F, accentColor().getRGB(), 0.0F);
-
+        int bg = selected ? lerpColor(new Color(14, 14, 14, 255).getRGB(), accentColor().getRGB(), 0.16F) : lerpColor(new Color(15,15,15,255).getRGB(), new Color(27,27,27,255).getRGB(), hover);
+        this.round(x, y + 1.0F, width, MODULE_ROW_HEIGHT - 2.0F, bg, 6.0F);
+        if (selected) this.round(x, y + 7.0F, 2.0F, MODULE_ROW_HEIGHT - 14.0F, accentColor().getRGB(), 1.0F);
         String name = module == this.listeningModule ? "Press a key..." : module.getName().replace('-', ' ');
         int key = module.getKey();
         String keyName = key != 0 && module != this.listeningModule ? KeyBindUtil.getKeyName(key) : null;
-        float nameMaxWidth = width - 39.0F;
-        if (keyName != null && width >= 88.0F) {
-            nameMaxWidth = Math.min(nameMaxWidth, width - 60.0F - FONT.getStringWidth(keyName));
-            this.text(keyName, x + width - 52.0F - FONT.getStringWidth(keyName),
-                    y + (MODULE_ROW_HEIGHT - FONT.getFontHeight()) / 2.0F, MUTED.getRGB());
-        }
-        this.text(this.trimToWidth(name, (int) Math.max(0.0F, nameMaxWidth)),
-                x + 8.0F, y + (MODULE_ROW_HEIGHT - FONT.getFontHeight()) / 2.0F,
-                enabled > 0.5F ? 0xFFFFFFFF : TEXT.getRGB());
         float switchX = x + width - 25.0F;
+        this.text(this.trimToWidth(name, (int) Math.max(0.0F, width - 67.0F)), x + 12.0F,
+                y + (MODULE_ROW_HEIGHT - FONT.getFontHeight()) / 2.0F, enabled > 0.5F ? Color.WHITE.getRGB() : TEXT.getRGB());
+        String expand = keyName != null && width >= 140.0F ? keyName : selected ? "−" : "+";
+        this.text(expand, switchX - FONT.getStringWidth(expand) - 11.0F,
+                y + (MODULE_ROW_HEIGHT - FONT.getFontHeight()) / 2.0F,
+                keyName == null && selected ? accentColor().brighter().getRGB() : MUTED.getRGB());
         float switchY = y + 10.0F;
         this.round(switchX, switchY, 18.0F, 9.0F,
-                lerpColor(TRACK.getRGB(), accentColor().getRGB(), enabled), 4.0F);
-        this.round(switchX + 1.0F + enabled * 8.0F, switchY + 1.0F, 7.0F, 7.0F, 0xFFFFFFFF, 3.5F);
+                lerpColor(new Color(42,42,42,255).getRGB(), accentColor().getRGB(), enabled), 5.0F);
+        this.round(switchX + 1.0F + enabled * 8.0F, switchY + 1.0F, 7.0F, 7.0F, 0xFFFFFFFF, 4.0F);
     }
 
-    private void renderSettingsPane(float mouseX, float mouseY) {
-        float right = this.windowX + this.windowWidth;
-        float width = right - this.settingsX;
-        if (this.selectedModule == null) {
-            this.text("Select a module", this.settingsX + 14.0F, this.bodyY + 20.0F, MUTED.getRGB());
-            return;
-        }
-
-        float x = this.settingsX + 12.0F;
-        float actionWidth = Math.min(48.0F, Math.max(28.0F, (width - 40.0F) / 2.0F));
-        float bindX = right - 12.0F - actionWidth;
-        float toggleX = bindX - 5.0F - actionWidth;
-        float controlY = this.bodyY + 18.0F;
-        if (width >= 220.0F) {
-            this.text("MODULE SETTINGS", x, this.bodyY + 9.0F, MUTED.getRGB());
-            String moduleName = this.trimToWidth(this.selectedModule.getName(), (int) Math.max(0.0F, toggleX - x - 7.0F));
-            this.text(moduleName, x, this.bodyY + 29.0F, TEXT.getRGB());
-        }
-
-        this.round(toggleX, controlY, actionWidth, 20.0F,
-                this.selectedModule.isEnabled() ? new Color(38, 38, 38, 255).getRGB() : ROW.getRGB(), 2.0F);
-        String toggleLabel = this.selectedModule.isEnabled() ? "ON" : "OFF";
-        float toggleLabelX = actionWidth >= 46.0F ? toggleX + 6.0F
-                : toggleX + (actionWidth - FONT.getStringWidth(toggleLabel)) / 2.0F;
-        this.text(toggleLabel, toggleLabelX, controlY + (20.0F - FONT.getFontHeight()) / 2.0F,
-                this.selectedModule.isEnabled() ? accentColor().brighter().getRGB() : MUTED.getRGB());
-        if (actionWidth >= 46.0F) {
-            this.drawMiniSwitch(toggleX + actionWidth - 20.0F, controlY + 5.0F,
-                    this.selectedModule.isEnabled() ? 1.0F : 0.0F);
-        }
-        String bindText = this.listeningModule == this.selectedModule ? "PRESS" : "KEY";
-        this.round(bindX, controlY, actionWidth, 20.0F, ROW.getRGB(), 2.0F);
-        bindText = this.trimToWidth(bindText, (int) Math.max(0.0F, actionWidth - 8.0F));
-        this.text(bindText, bindX + (actionWidth - FONT.getStringWidth(bindText)) / 2.0F,
-                controlY + (20.0F - FONT.getFontHeight()) / 2.0F,
-                this.listeningModule == this.selectedModule ? accentColor().brighter().getRGB() : MUTED.getRGB());
-
-        this.round(x, this.bodyY + 53.0F, width - 24.0F, 1.0F, new Color(38, 38, 38, 255).getRGB(), 0.0F);
-        List<Property<?>> properties = this.getProperties(this.selectedModule);
-        int visibleProperties = 0;
-        if (properties != null) for (Property<?> property : properties) if (property.isVisible()) visibleProperties++;
-        String propertiesLabel = width >= 112.0F ? "PROPERTIES" : "PROPS";
-        this.text(propertiesLabel, x, this.settingsListY - 13.0F, MUTED.getRGB());
-        String count = String.valueOf(visibleProperties);
-        if (width >= 112.0F) {
-            this.text(count, right - 12.0F - FONT.getStringWidth(count), this.settingsListY - 13.0F, MUTED.getRGB());
-        }
-
-        this.scissorOn(this.settingsX + 6.0F, this.settingsListY, width - 12.0F, this.settingsListHeight);
-        float settingY = this.settingsListY - this.settingsScroll;
+    private void renderInlineSettings(Module module, float x, float y, float width, float mouseX, float mouseY) {
+        float height = this.expandedSettingsHeight();
+        if (height <= 0.0F) return;
+        this.round(x + 2.0F, y + 2.0F, width - 4.0F, height - 5.0F,
+                new Color(12, 12, 12, 255).getRGB(), 6.0F);
+        this.text("SETTINGS", x + 12.0F, y + 10.0F, MUTED.getRGB());
+        this.text("Middle-click module to bind", x + width - FONT.getStringWidth("Middle-click module to bind") - 12.0F,
+                y + 10.0F, MUTED.getRGB());
+        float settingY = y + 25.0F;
+        this.settingsListY = settingY;
+        this.settingsListHeight = this.propertyContentHeight();
         for (SettingComponent setting : this.settingComponents) {
             if (!setting.property.isVisible()) continue;
-            float height = setting.getHeight();
-            if (settingY + height > this.settingsListY && settingY < this.settingsListY + this.settingsListHeight) {
-                setting.render(this.settingsX + 9.0F, settingY, (int) (width - 18.0F), mouseX, mouseY);
-            }
-            settingY += height;
+            float h = setting.getHeight();
+            setting.render(x + 8.0F, settingY, (int) width - 16, mouseX, mouseY);
+            settingY += h;
         }
-        this.scissorOff();
+        if (this.settingsListHeight <= 0.0F) this.text("No settings for this module", x + 12.0F, y + 31.0F, MUTED.getRGB());
+    }
 
-        float settingsContent = 0.0F;
-        for (SettingComponent setting : this.settingComponents) if (setting.property.isVisible()) settingsContent += setting.getHeight();
-        if (settingsContent > this.settingsListHeight) {
-            this.drawScrollbar(right - 3.0F, this.settingsListY, this.settingsListHeight, settingsContent, this.settingsScroll);
+    private float propertyContentHeight() {
+        float height = 0.0F;
+        for (SettingComponent setting : this.settingComponents) if (setting.property.isVisible()) height += setting.getHeight();
+        return height;
+    }
+
+    private float expandedSettingsHeight() {
+        return this.selectedModule == null ? 0.0F : Math.max(42.0F, 30.0F + this.propertyContentHeight());
+    }
+
+    private float selectedModuleRowTop() {
+        return this.moduleRowTop(this.selectedModule);
+    }
+
+    private float moduleRowTop(Module target) {
+        if (target == null) return -1.0F;
+        float y = this.moduleListY - this.moduleScroll;
+        for (Module module : this.getVisibleModules()) {
+            if (module == target) return y;
+            y += MODULE_ROW_HEIGHT;
+            if (module == this.selectedModule) y += this.expandedSettingsHeight();
         }
-        if (visibleProperties == 0) this.text("No settings", x + 3.0F, this.settingsListY + 12.0F, MUTED.getRGB());
+        return -1.0F;
     }
 
     private void renderConfigsPane(float mouseX, float mouseY) {
         float x = this.windowX + 14.0F;
         float width = Math.max(0.0F, this.windowWidth - 28.0F);
         String heading = width >= 100.0F ? "SAVED CONFIGS" : "CONFIGS";
-        heading = this.trimToWidth(heading, (int) Math.max(0.0F, width - 24.0F));
-        this.text(heading, x + 2.0F, this.bodyY + 13.0F, MUTED.getRGB());
-        String count = String.valueOf(this.savedConfigs.size());
-        if (width >= 130.0F) {
-            this.text(count, this.windowX + this.windowWidth - FONT.getStringWidth(count) - 18.0F,
-                    this.bodyY + 13.0F, MUTED.getRGB());
+        float buttonWidth = Math.min(width - 14.0F, FONT.getStringWidth("UPLOAD CONFIG") + 20.0F);
+        float buttonX = x + width - 7.0F - buttonWidth;
+        heading = this.trimToWidth(heading, (int) Math.max(0.0F, buttonX - x - 12.0F));
+        this.text(heading, x + 2.0F, this.bodyY + 16.0F, MUTED.getRGB());
+
+        float buttonY = this.bodyY + 10.0F;
+        boolean buttonHover = mouseX >= buttonX && mouseX <= buttonX + buttonWidth
+                && mouseY >= buttonY && mouseY <= buttonY + 20.0F;
+        int buttonFill = buttonHover ? new Color(24, 24, 24, 255).getRGB() : new Color(15, 15, 15, 255).getRGB();
+        this.round(buttonX, buttonY, buttonWidth, 20.0F, new Color(39, 39, 39, 255).getRGB(), 3.0F);
+        this.round(buttonX + 1.0F, buttonY + 1.0F, buttonWidth - 2.0F, 18.0F, buttonFill, 2.0F);
+        String uploadLabel = this.trimToWidth("UPLOAD CONFIG", (int) buttonWidth - 14);
+        this.text(uploadLabel, buttonX + (buttonWidth - FONT.getStringWidth(uploadLabel)) / 2.0F,
+                buttonY + (20.0F - FONT.getFontHeight()) / 2.0F, Color.WHITE.getRGB());
+        if (System.currentTimeMillis() < this.configImportStatusUntil && !this.configImportStatus.isEmpty()) {
+            this.text(this.trimToWidth(this.configImportStatus, (int) width - 12), x + 7.0F,
+                    this.bodyY + 31.0F, TEXT.getRGB());
         }
 
         if (this.savedConfigs.isEmpty()) {
@@ -668,7 +686,7 @@ public class ClickGui extends GuiScreen {
     }
 
     private void refreshConfigs() {
-        File directory = new File("./config/CrewX/");
+        File directory = crewx.config.Config.directory();
         File[] files = directory.listFiles((dir, name) -> name.toLowerCase(Locale.ROOT).endsWith(".json"));
         this.savedConfigs.clear();
         if (files != null) {
@@ -691,6 +709,117 @@ public class ClickGui extends GuiScreen {
     private String configName(File file) {
         String name = file.getName();
         return name.toLowerCase(Locale.ROOT).endsWith(".json") ? name.substring(0, name.length() - 5) : name;
+    }
+
+    private boolean isUploadConfigButtonHit(float mouseX, float mouseY) {
+        float x = this.windowX + 14.0F;
+        float width = Math.max(0.0F, this.windowWidth - 28.0F);
+        float buttonWidth = Math.min(width - 14.0F, FONT.getStringWidth("UPLOAD CONFIG") + 20.0F);
+        float buttonX = x + width - 7.0F - buttonWidth;
+        float buttonY = this.bodyY + 10.0F;
+        return mouseX >= buttonX && mouseX <= buttonX + buttonWidth
+                && mouseY >= buttonY && mouseY <= buttonY + 20.0F;
+    }
+
+    private void openConfigFileChooser() {
+        try {
+            EventQueue.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        JFileChooser chooser = new JFileChooser(new File(System.getProperty("user.home", ".")));
+                        chooser.setDialogTitle("Upload Config (JSON)");
+                        chooser.setAcceptAllFileFilterUsed(false);
+                        chooser.setFileFilter(new FileNameExtensionFilter("JSON configs (*.json)", "json"));
+                        chooser.setMultiSelectionEnabled(false);
+                        JFrame owner = new JFrame();
+                        owner.setUndecorated(true);
+                        owner.setAlwaysOnTop(true);
+                        owner.setLocationRelativeTo(null);
+                        final File selected;
+                        try {
+                            selected = chooser.showOpenDialog(owner) == JFileChooser.APPROVE_OPTION
+                                    ? chooser.getSelectedFile() : null;
+                        } finally {
+                            owner.dispose();
+                        }
+                        if (selected != null) {
+                            mc.addScheduledTask(new Runnable() {
+                                @Override
+                                public void run() {
+                                    importConfigFile(selected);
+                                }
+                            });
+                        }
+                    } catch (final Throwable error) {
+                        mc.addScheduledTask(new Runnable() {
+                            @Override
+                            public void run() {
+                                setConfigImportStatus("Could not open the file picker.");
+                            }
+                        });
+                    }
+                }
+            });
+        } catch (Throwable error) {
+            this.setConfigImportStatus("Could not open the file picker.");
+        }
+    }
+
+    private void importConfigFile(File source) {
+        if (source == null || !source.isFile() || !source.getName().toLowerCase(Locale.ROOT).endsWith(".json")) {
+            this.setConfigImportStatus("Choose a .json config file.");
+            return;
+        }
+        try (Reader reader = new BufferedReader(new FileReader(source))) {
+            JsonElement parsed = new JsonParser().parse(reader);
+            if (parsed == null || !parsed.isJsonObject()) {
+                this.setConfigImportStatus("This file is not a valid JSON config.");
+                return;
+            }
+        } catch (Exception error) {
+            this.setConfigImportStatus("Could not read the selected JSON file.");
+            return;
+        }
+
+        try {
+            File directory = Config.directory();
+            if (!directory.exists() && !directory.mkdirs()) {
+                this.setConfigImportStatus("Could not access the config folder.");
+                return;
+            }
+            File canonicalDirectory = directory.getCanonicalFile();
+            File canonicalSource = source.getCanonicalFile();
+            if (canonicalSource.getParentFile() != null
+                    && canonicalSource.getParentFile().equals(canonicalDirectory)) {
+                this.refreshConfigs();
+                this.setConfigImportStatus("Config is already in the list: " + this.configName(source));
+                return;
+            }
+
+            String original = source.getName().substring(0, source.getName().length() - 5);
+            String safeName = original.replaceAll("[^A-Za-z0-9 _-]", "_").trim();
+            if (safeName.isEmpty() || ".".equals(safeName) || "..".equals(safeName)) safeName = "imported-config";
+            if ("default".equalsIgnoreCase(safeName)) safeName += "-imported";
+            if (safeName.length() > 75) safeName = safeName.substring(0, 75).trim();
+            File target = new File(canonicalDirectory, safeName + ".json");
+            int suffix = 2;
+            while (target.exists()) {
+                target = new File(canonicalDirectory, safeName + "-" + suffix++ + ".json");
+            }
+            java.nio.file.Files.copy(canonicalSource.toPath(), target.toPath());
+            this.refreshConfigs();
+            this.targetConfigScroll = 0.0F;
+            this.configScroll = 0.0F;
+            this.setConfigImportStatus("Imported: " + this.configName(target));
+        } catch (Exception error) {
+            this.setConfigImportStatus("Could not import the selected config.");
+        }
+    }
+
+    private void setConfigImportStatus(String message) {
+        this.configImportStatus = message == null ? "" : message;
+        this.configImportStatusUntil = System.currentTimeMillis() + 5000L;
     }
 
     private File getConfigAt(float mouseX, float mouseY) {
@@ -818,7 +947,7 @@ public class ClickGui extends GuiScreen {
         this.selectedCategory = category;
         this.moduleScroll = 0.0F;
         this.targetModuleScroll = 0.0F;
-        this.selectFirstModule();
+        this.selectModule(null);
     }
 
     private void selectFirstModule() {
@@ -855,7 +984,6 @@ public class ClickGui extends GuiScreen {
         float my = this.toVirtualY(mouseY);
         this.lastMouseX = mx;
         this.lastMouseY = my;
-
         if (this.listeningModule != null) {
             this.listeningModule.setKey(mouseButton - 100);
             this.listeningModule = null;
@@ -863,7 +991,6 @@ public class ClickGui extends GuiScreen {
         }
         if (this.listeningSettingBind != null) return;
         if (this.searchFocused && !this.insideSearch(mx, my)) this.searchFocused = false;
-
         if (mx >= this.windowX && mx <= this.windowX + this.windowWidth
                 && my >= this.windowY && my <= this.windowY + HEADER_HEIGHT) {
             if (mouseButton == 0) {
@@ -872,12 +999,10 @@ public class ClickGui extends GuiScreen {
                 String modulesLabel = this.headerLabel(ViewTab.MODULES);
                 String configsLabel = this.headerLabel(ViewTab.CONFIGS);
                 if (mx >= modulesX - 5.0F && mx <= modulesX + FONT.getStringWidth(modulesLabel) + 6.0F) {
-                    this.setActiveTab(ViewTab.MODULES);
-                    return;
+                    this.setActiveTab(ViewTab.MODULES); return;
                 }
                 if (mx >= configsX - 5.0F && mx <= configsX + FONT.getStringWidth(configsLabel) + 6.0F) {
-                    this.setActiveTab(ViewTab.CONFIGS);
-                    return;
+                    this.setActiveTab(ViewTab.CONFIGS); return;
                 }
             }
             this.draggingWindow = mouseButton == 0;
@@ -885,105 +1010,79 @@ public class ClickGui extends GuiScreen {
             this.dragMouseOffsetY = my - this.windowY;
             return;
         }
-
         if (this.activeTab == ViewTab.CONFIGS) {
+            if (mouseButton == 0 && this.isUploadConfigButtonHit(mx, my)) {
+                this.setFocus(null);
+                this.openConfigFileChooser();
+                return;
+            }
             if (mouseButton == 0 && my >= this.configListY && my <= this.configListY + this.configListHeight) {
                 this.beginScrollDrag(DRAG_CONFIGS, my);
                 this.pendingConfigClick = this.getConfigAt(mx, my);
             }
-            this.setFocus(null);
-            return;
+            this.setFocus(null); return;
         }
-
-        float navY = this.bodyY + (this.bodyHeight < 140.0F ? 18.0F : 26.0F);
+        float navY = this.bodyY + 29.0F;
         float navStep = this.categoryNavStep();
         for (ModuleCategory category : CATEGORIES) {
-            if (mx >= this.windowX + 5.0F && mx <= this.windowX + this.sidebarWidth - 5.0F
-                    && my >= navY && my <= navY + navStep - 2.0F) {
-                this.selectCategory(category);
-                this.setFocus(null);
-                return;
+            if (mx >= this.windowX + 7.0F && mx <= this.windowX + this.sidebarWidth - 7.0F
+                    && my >= navY && my <= navY + navStep - 1.0F) {
+                this.selectCategory(category); this.setFocus(null); return;
             }
             navY += navStep;
         }
-
-        float searchX = this.windowX + this.sidebarWidth + 9.0F;
-        float searchWidth = this.modulePaneWidth - 18.0F;
-        if (mx >= searchX && mx <= searchX + searchWidth
-                && my >= this.searchY && my <= this.searchY + 22.0F) {
-            if (!this.searchText.isEmpty() && mx >= searchX + searchWidth - 19.0F) {
-                this.searchText = "";
-                this.targetModuleScroll = 0.0F;
+        float searchX = this.windowX + this.sidebarWidth + 13.0F;
+        float searchWidth = this.modulePaneWidth - 26.0F;
+        if (mx >= searchX && mx <= searchX + searchWidth && my >= this.searchY && my <= this.searchY + 23.0F) {
+            if (!this.searchText.isEmpty() && mx >= searchX + searchWidth - 20.0F) {
+                this.searchText = ""; this.targetModuleScroll = 0.0F;
             }
-            this.searchFocused = true;
-            this.setFocus(null);
-            return;
+            this.searchFocused = true; this.setFocus(null); return;
         }
-
-        if (mx >= this.windowX + this.sidebarWidth + 6.0F && mx < this.settingsX
+        if (mx >= this.windowX + this.sidebarWidth && mx <= this.windowX + this.windowWidth
                 && my >= this.moduleListY && my <= this.bodyY + this.bodyHeight) {
+            float selectedTop = this.selectedModuleRowTop();
+            if (this.selectedModule != null && selectedTop >= 0.0F) {
+                float settingsTop = selectedTop + MODULE_ROW_HEIGHT + 25.0F;
+                if (my >= settingsTop && my <= settingsTop + this.propertyContentHeight()) {
+                    boolean consumed = this.dispatchSettingClick(mx, my, mouseButton, true);
+                    if (mouseButton == 0 && !consumed) this.beginScrollDrag(DRAG_MODULES, my);
+                    if (consumed || mouseButton == 0 || mouseButton == 1) return;
+                }
+            }
             List<Module> visible = this.getVisibleModules();
-            int index = (int) ((my - this.moduleListY + this.moduleScroll) / MODULE_ROW_HEIGHT);
-            if (index >= 0 && index < visible.size()) {
-                Module module = visible.get(index);
-                float rowX = this.windowX + this.sidebarWidth + 7.0F;
-                float rowWidth = this.modulePaneWidth - 14.0F;
-                boolean toggleHit = mx >= rowX + rowWidth - 31.0F && mx <= rowX + rowWidth - 3.0F;
-                boolean settingsHit = mx >= rowX + rowWidth - 39.0F && !toggleHit;
-                if (mouseButton == 0) {
-                    if (toggleHit) {
-                        this.clearScrollDrag();
-                        module.toggle();
-                    } else if (settingsHit) {
-                        this.clearScrollDrag();
-                        this.selectModule(module);
-                    } else {
+            float y = this.moduleListY - this.moduleScroll;
+            for (Module module : visible) {
+                if (my >= y && my <= y + MODULE_ROW_HEIGHT) {
+                    float rowX = this.windowX + this.sidebarWidth + 10.0F;
+                    float rowWidth = this.modulePaneWidth - 20.0F;
+                    boolean toggleHit = mx >= rowX + rowWidth - 27.0F
+                            && mx <= rowX + rowWidth - 5.0F;
+                    if (mouseButton == 0 && toggleHit) {
+                        this.clearScrollDrag(); module.toggle(); return;
+                    }
+                    if (mouseButton == 2) { this.listeningModule = module; return; }
+                    if (mouseButton == 1) { this.selectModule(module == this.selectedModule ? null : module); return; }
+                    if (mouseButton == 0) {
                         this.beginScrollDrag(DRAG_MODULES, my);
                         this.pendingModuleClick = module;
+                        this.pendingModuleSettingsHit = false;
+                        this.pendingModuleToggleHit = true;
                     }
-                } else if (mouseButton == 2) {
-                    this.listeningModule = module;
-                } else if (mouseButton == 1 || settingsHit) {
-                    this.clearScrollDrag();
-                    this.selectModule(module);
+                    return;
                 }
-                return;
+                y += MODULE_ROW_HEIGHT;
+                if (module == this.selectedModule) {
+                    y += this.expandedSettingsHeight();
+                    if (my < y) return;
+                }
             }
             if (mouseButton == 0) {
-                this.beginScrollDrag(DRAG_MODULES, my);
-                return;
+                this.beginScrollDrag(DRAG_MODULES, my); return;
             }
         }
-
-        if (this.selectedModule != null && mx >= this.settingsX && my >= this.bodyY) {
-            float right = this.windowX + this.windowWidth;
-            float paneWidth = right - this.settingsX;
-            float actionWidth = Math.min(48.0F, Math.max(28.0F, (paneWidth - 40.0F) / 2.0F));
-            float bindX = right - 12.0F - actionWidth;
-            float toggleX = bindX - 5.0F - actionWidth;
-            float controlY = this.bodyY + 18.0F;
-            if (my >= controlY && my <= controlY + 20.0F) {
-                if (mx >= toggleX && mx <= toggleX + actionWidth && mouseButton == 0) {
-                    this.selectedModule.toggle();
-                    return;
-                }
-                if (mx >= bindX && mx <= bindX + actionWidth && (mouseButton == 0 || mouseButton == 2)) {
-                    this.listeningModule = this.selectedModule;
-                    return;
-                }
-            }
-            if (mx >= this.settingsX + 8.0F && my >= this.settingsListY
-                    && my <= this.settingsListY + this.settingsListHeight) {
-                boolean consumed = this.dispatchSettingClick(mx, my, mouseButton, true);
-                if (mouseButton == 0 && !consumed) this.beginScrollDrag(DRAG_SETTINGS, my);
-                if (consumed || mouseButton == 0 || mouseButton == 1) return;
-                return;
-            }
-        }
-
         this.setFocus(null);
     }
-
     private boolean insideSearch(float mouseX, float mouseY) {
         float x = this.windowX + this.sidebarWidth + 9.0F;
         return mouseX >= x && mouseX <= x + this.modulePaneWidth - 18.0F
@@ -991,9 +1090,9 @@ public class ClickGui extends GuiScreen {
     }
 
     private boolean dispatchSettingClick(float mouseX, float mouseY, int mouseButton, boolean pressPhase) {
-        float y = this.settingsListY - this.settingsScroll;
-        float x = this.settingsX + 12.0F;
-        float width = this.windowX + this.windowWidth - this.settingsX - 24.0F;
+        float y = this.settingsListY;
+        float x = this.windowX + this.sidebarWidth + 18.0F;
+        float width = this.modulePaneWidth - 36.0F;
         for (SettingComponent setting : this.settingComponents) {
             if (!setting.property.isVisible()) continue;
             float height = setting.getHeight();
@@ -1004,7 +1103,6 @@ public class ClickGui extends GuiScreen {
         }
         return false;
     }
-
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int clickedMouseButton, long timeSinceLastClick) {
         if (this.draggingSetting != null && clickedMouseButton == 0) {
@@ -1018,8 +1116,8 @@ public class ClickGui extends GuiScreen {
         if (this.draggingWindow && clickedMouseButton == 0) {
             float mx = this.toVirtualX(mouseX);
             float my = this.toVirtualY(mouseY);
-            this.windowOffsetX = mx - this.dragMouseOffsetX - (this.width - this.windowWidth) / 2.0F;
-            this.windowOffsetY = my - this.dragMouseOffsetY - (this.height - this.windowHeight) / 2.0F;
+            this.windowOffsetX = mx - this.dragMouseOffsetX - (this.virtualWidth - this.windowWidth) / 2.0F;
+            this.windowOffsetY = my - this.dragMouseOffsetY - (this.virtualHeight - this.windowHeight) / 2.0F;
             this.computeLayout();
         }
     }
@@ -1031,10 +1129,10 @@ public class ClickGui extends GuiScreen {
         if (state == 0 && !this.scrollDragActive) {
             if (this.scrollDragTarget == DRAG_MODULES && this.pendingModuleClick != null) {
                 List<Module> visible = this.getVisibleModules();
-                int index = (int) ((my - this.moduleListY + this.moduleScroll) / MODULE_ROW_HEIGHT);
-                if (index >= 0 && index < visible.size() && visible.get(index) == this.pendingModuleClick) {
+                float pendingTop = this.moduleRowTop(this.pendingModuleClick);
+                if (pendingTop >= 0.0F && my >= pendingTop && my <= pendingTop + MODULE_ROW_HEIGHT) {
                     if (this.pendingModuleSettingsHit && !this.pendingModuleToggleHit) {
-                        this.selectModule(this.pendingModuleClick);
+                        this.selectModule(this.pendingModuleClick == this.selectedModule ? null : this.pendingModuleClick);
                     } else {
                         this.pendingModuleClick.toggle();
                     }
@@ -1049,7 +1147,7 @@ public class ClickGui extends GuiScreen {
         boolean releaseSettings = this.draggingSetting != null
                 || (this.scrollDragTarget == DRAG_SETTINGS && !this.scrollDragActive);
         if (this.activeTab == ViewTab.MODULES && state == 0 && releaseSettings
-                && this.selectedModule != null && mx >= this.settingsX
+                && this.selectedModule != null && mx >= this.windowX + this.sidebarWidth
                 && my >= this.settingsListY && my <= this.settingsListY + this.settingsListHeight) {
             this.dispatchSettingClick(mx, my, state, false);
         }
@@ -1070,15 +1168,11 @@ public class ClickGui extends GuiScreen {
                     && mouseY >= this.configListY && mouseY <= this.configListY + this.configListHeight) {
                 this.targetConfigScroll -= wheel / 120.0F * CONFIG_ROW_HEIGHT * 2.0F;
             }
-        } else if (mouseX >= this.windowX + this.sidebarWidth && mouseX <= this.settingsX
+        } else if (mouseX >= this.windowX + this.sidebarWidth && mouseX <= this.windowX + this.windowWidth
                 && mouseY >= this.moduleListY && mouseY <= this.bodyY + this.bodyHeight) {
             this.targetModuleScroll -= wheel / 120.0F * MODULE_ROW_HEIGHT * 2.0F;
-        } else if (mouseX >= this.settingsX && mouseX <= this.windowX + this.windowWidth
-                && mouseY >= this.settingsListY && mouseY <= this.settingsListY + this.settingsListHeight) {
-            this.targetSettingsScroll -= wheel / 120.0F * 32.0F;
         }
     }
-
     @Override
     protected void keyTyped(char typedChar, int keyCode) throws IOException {
         if (this.listeningModule != null) {
@@ -1202,10 +1296,10 @@ public class ClickGui extends GuiScreen {
     private void applyScissor(float[] rect) {
         ScaledResolution sr = new ScaledResolution(mc);
         int factor = sr.getScaleFactor();
-        float x1 = this.centerX + (rect[0] - this.centerX) * this.renderScale;
-        float x2 = this.centerX + (rect[2] - this.centerX) * this.renderScale;
-        float y1 = this.centerY + (rect[1] + this.renderOffsetY - this.centerY) * this.renderScale;
-        float y2 = this.centerY + (rect[3] + this.renderOffsetY - this.centerY) * this.renderScale;
+        float x1 = (this.centerX + (rect[0] - this.centerX) * this.renderScale) * this.uiScale;
+        float x2 = (this.centerX + (rect[2] - this.centerX) * this.renderScale) * this.uiScale;
+        float y1 = (this.centerY + (rect[1] + this.renderOffsetY - this.centerY) * this.renderScale) * this.uiScale;
+        float y2 = (this.centerY + (rect[3] + this.renderOffsetY - this.centerY) * this.renderScale) * this.uiScale;
         int sx = (int) Math.floor(x1 * factor);
         int sw = (int) Math.ceil((x2 - x1) * factor);
         int sh = (int) Math.ceil((y2 - y1) * factor);
@@ -1579,10 +1673,13 @@ public class ClickGui extends GuiScreen {
         private boolean mouseClicked(float x, float y, int width, float mouseX, float mouseY, int mouseButton, boolean pressPhase) {
             boolean onRow = mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + SETTING_HEIGHT;
             if (this.isManualBind()) {
-                if (pressPhase || !onRow) return false;
-                ClickGui.this.setFocus(null);
-                ClickGui.this.listeningSettingBind = this;
-                return true;
+                if (pressPhase) {
+                    if (mouseButton != 0 || !onRow) return false;
+                    ClickGui.this.setFocus(null);
+                    ClickGui.this.listeningSettingBind = this;
+                    return true;
+                }
+                return false;
             }
             if (isSlider(this.property)) {
                 boolean onValue = this.valueBoxContains(x, y, width, mouseX, mouseY);
@@ -1634,6 +1731,30 @@ public class ClickGui extends GuiScreen {
                 }
                 return false;
             }
+            if (this.property instanceof ModeProperty) {
+                ModeProperty mode = (ModeProperty) this.property;
+                String[] values = getModeValues(mode);
+                float optionY = y + SETTING_HEIGHT - 1.0F;
+                if (pressPhase) {
+                    if (this.dropdownOpen) {
+                        for (int i = 0; i < values.length; i++) {
+                            if (mouseX >= x + 6.0F && mouseX <= x + width - 6.0F
+                                    && mouseY >= optionY && mouseY <= optionY + OPTION_HEIGHT) {
+                                mode.setValue(Integer.valueOf(i));
+                                this.dropdownOpen = false;
+                                return true;
+                            }
+                            optionY += OPTION_HEIGHT;
+                        }
+                    }
+                    if (onRow) {
+                        this.dropdownOpen = !this.dropdownOpen;
+                        return true;
+                    }
+                    return false;
+                }
+                return false;
+            }
             if (pressPhase) return false;
             if (this.property instanceof ButtonProperty) {
                 if (onRow) {
@@ -1645,27 +1766,6 @@ public class ClickGui extends GuiScreen {
             if (this.property instanceof BooleanProperty) {
                 if (onRow) {
                     this.property.setValue(!Boolean.TRUE.equals(this.property.getValue()));
-                    return true;
-                }
-                return false;
-            }
-            if (this.property instanceof ModeProperty) {
-                ModeProperty mode = (ModeProperty) this.property;
-                if (this.dropdownOpen && this.dropdownAnim > 0.4F) {
-                    String[] values = getModeValues(mode);
-                    float optionY = y + SETTING_HEIGHT - 1.0F;
-                    for (int i = 0; i < values.length; i++) {
-                        if (mouseX >= x + 6.0F && mouseX <= x + width - 6.0F
-                                && mouseY >= optionY && mouseY <= optionY + OPTION_HEIGHT) {
-                            mode.setValue(Integer.valueOf(i));
-                            this.dropdownOpen = false;
-                            return true;
-                        }
-                        optionY += OPTION_HEIGHT;
-                    }
-                }
-                if (onRow) {
-                    this.dropdownOpen = !this.dropdownOpen;
                     return true;
                 }
                 return false;
@@ -1841,10 +1941,12 @@ public class ClickGui extends GuiScreen {
     }
 
     private float toVirtualX(float screenX) {
-        return (screenX - this.centerX) / this.renderScale + this.centerX;
+        float scaledX = screenX / this.uiScale;
+        return (scaledX - this.centerX) / this.renderScale + this.centerX;
     }
 
     private float toVirtualY(float screenY) {
-        return (screenY - this.centerY) / this.renderScale + this.centerY - this.renderOffsetY;
+        float scaledY = screenY / this.uiScale;
+        return (scaledY - this.centerY) / this.renderScale + this.centerY - this.renderOffsetY;
     }
 }

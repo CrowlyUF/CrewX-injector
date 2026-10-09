@@ -72,8 +72,8 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         for (int side : SIDES) {
             GlStateManager.pushMatrix();
             try {
-                // The torso's back face is at roughly +2 model units; move the wing roots
-                // past that plane so the membranes and ribs do not render inside the player.
+
+
                 GlStateManager.translate(side * 2.1F * scale, 3.0F * scale, 2.7F * scale);
                 GlStateManager.rotate(-side * (9.0F + flap), 0.0F, 0.0F, 1.0F);
                 GlStateManager.rotate(side * 7.0F, 0.0F, 1.0F, 0.0F);
@@ -211,7 +211,7 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         GlStateManager.pushMatrix();
         try {
             model.bipedHeadwear.postRender(scale);
-            // Keep every style outside the skin and helmet volume.
+
             GlStateManager.translate(0.0F, -1.15F * scale, 0.0F);
             GlStateManager.scale(scale, scale, scale);
             switch (style) {
@@ -229,7 +229,7 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         }
     }
 
-    /** Broad, tapered straw hat with radial weave detail rather than stacked block layers. */
+
     private void drawStrawHat() {
         this.drawStrawBrim();
         this.drawStrawCone();
@@ -365,7 +365,7 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
 
     private void drawHalo() {
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
-        // Raised subtly above the previous placement; concentric translucent strokes form the glow.
+
         this.drawHaloRing(4.8F, -11.05F, 6.0F, 0x20FFD057);
         this.drawHaloRing(4.67F, -11.12F, 3.5F, 0x55FFD66A);
         this.drawHaloRing(4.56F, -11.18F, 1.7F, 0xFFFFE6A1);

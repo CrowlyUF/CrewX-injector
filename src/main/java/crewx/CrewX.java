@@ -21,12 +21,14 @@ import crewx.property.PropertyManager;
 import crewx.util.DiscordRPC;
 
 import java.io.InputStreamReader;
+import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Objects;
 
 public class CrewX {
+    public static volatile boolean initializationComplete;
     public static String clientName = "&7[&bCrewX&7]&r ";
     public static String version;
     public static RotationManager rotationManager;
@@ -68,6 +70,7 @@ public class CrewX {
         EventManager.register(commandManager);
         discordRPC = new DiscordRPC();
         moduleManager.modules.put(AimAssist.class, new AimAssist());
+        moduleManager.modules.put(ProjectileAimbot.class, new ProjectileAimbot());
         moduleManager.modules.put(Backtrack.class, new Backtrack());
         moduleManager.modules.put(Overlay.class, new Overlay());
         moduleManager.modules.put(DiscordRPC.class, discordRPC);
@@ -202,9 +205,20 @@ public class CrewX {
         scriptManager = new crewx.script.ScriptManager();
         scriptManager.init();
 
-        Config config = new Config("default", true);
+        Config config = new Config(Config.activeName(), false);
         if (config.file.exists()) {
-            config.load();
+            File defaultsMarker = new File(config.file.getParentFile(), ".module-defaults-v1");
+
+
+            boolean resetOldToggleStates = !defaultsMarker.exists()
+                    && "default".equals(config.name)
+                    && !new File(config.file.getParentFile(), ".active-config").exists();
+            if (config.load(resetOldToggleStates) && resetOldToggleStates) {
+                try {
+                    if (defaultsMarker.createNewFile()) config.save();
+                } catch (Exception ignored) {
+                }
+            }
         }
         if (discordRPC.isEnabled()) {
             Thread discordStartup = new Thread(new Runnable() {
@@ -223,7 +237,7 @@ public class CrewX {
             targetManager.load();
         }
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            config.save();
+            new Config(Config.lastConfig, false).save();
             if (discordRPC != null) discordRPC.shutdown();
         }));
 
@@ -235,6 +249,7 @@ public class CrewX {
         }
 
         AccountManager.init();
+        initializationComplete = true;
     }
 
 

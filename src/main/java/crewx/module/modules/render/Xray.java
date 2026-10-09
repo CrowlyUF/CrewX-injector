@@ -25,7 +25,7 @@ import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.Vec3;
 import net.minecraft.util.Vec3i;
-import net.minecraftforge.common.ForgeModContainer;
+import crewx.inject.ForgeCompat;
 
 import java.awt.*;
 import java.util.Arrays;
@@ -306,7 +306,7 @@ public class Xray extends Module {
 
     @Override
     public void onEnabled() {
-        ForgeModContainer.forgeLightPipelineEnabled = false;
+        ForgeCompat.setLightPipeline(false);
         if (mc.renderGlobal != null) {
             mc.renderGlobal.loadRenderers();
         }
@@ -314,7 +314,7 @@ public class Xray extends Module {
 
     @Override
     public void onDisabled() {
-        ForgeModContainer.forgeLightPipelineEnabled = true;
+        ForgeCompat.setLightPipeline(true);
         if (mc.renderGlobal != null) {
             mc.renderGlobal.loadRenderers();
         }

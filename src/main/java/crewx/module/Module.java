@@ -1,9 +1,11 @@
 package crewx.module;
 
 import crewx.CrewX;
+import crewx.config.Config;
 import crewx.module.modules.render.HUD;
 import crewx.module.modules.render.GuiModule;
 import crewx.module.modules.render.Notifications;
+import crewx.module.modules.movement.Sprint;
 import crewx.util.KeyBindUtil;
 import crewx.util.SoundUtil;
 
@@ -22,7 +24,8 @@ public abstract class Module {
 
     public Module(String name, boolean enabled, boolean hidden) {
         this.name = name;
-        this.enabled = this.defaultEnabled = enabled;
+        this.defaultEnabled = enabled && (this instanceof Sprint || this instanceof HUD || this instanceof Notifications);
+        this.enabled = this.defaultEnabled;
         this.key = this.defaultKey = 0;
         this.hidden = this.defaultHidden = hidden;
     }
@@ -66,6 +69,7 @@ public abstract class Module {
                             this.name + (enabled ? " Toggled" : " Toggled Off"), enabled);
                 }
             } catch (Throwable ignored) {}
+            Config.markDirty();
         }
     }
 
@@ -88,7 +92,10 @@ public abstract class Module {
     }
 
     public void setKey(int integer) {
-        this.key = integer;
+        if (this.key != integer) {
+            this.key = integer;
+            Config.markDirty();
+        }
     }
 
     public boolean isHidden() {
@@ -96,7 +103,10 @@ public abstract class Module {
     }
 
     public void setHidden(boolean boolean1) {
-        this.hidden = boolean1;
+        if (this.hidden != boolean1) {
+            this.hidden = boolean1;
+            Config.markDirty();
+        }
     }
 
     public void onEnabled() {

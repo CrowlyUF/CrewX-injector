@@ -1,10 +1,10 @@
 package crewx.module.modules.movement;
 
-/*
- * Adapted from LibreBounce NoSlow.
- * Upstream: https://github.com/LibreBounce/LibreBounce/blob/main/src/main/java/net/ccbluex/liquidbounce/features/module/modules/movement/NoSlow.kt
- * Copyright (c) CCBlueX contributors. Licensed under GPL-3.0.
- */
+
+
+
+
+
 
 import crewx.CrewX;
 import crewx.enums.BlinkModules;

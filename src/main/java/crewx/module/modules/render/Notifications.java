@@ -1,11 +1,10 @@
 package crewx.module.modules.render;
 
 import crewx.module.Module;
+import crewx.event.EventTarget;
+import crewx.events.Render2DEvent;
 import crewx.util.notifications.NotificationManager;
 import crewx.util.notifications.NotificationType;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 public class Notifications extends Module {
     private static Notifications INSTANCE;
@@ -13,10 +12,10 @@ public class Notifications extends Module {
     public Notifications() {
         super("Notifications", true);
         INSTANCE = this;
-        MinecraftForge.EVENT_BUS.register(this);
     }
 
     public static void push(String title, String message, boolean enabled) {
+        if (INSTANCE == null || !INSTANCE.isEnabled()) return;
         NotificationManager.getManager().post(
                 title,
                 message == null ? "" : message,
@@ -26,6 +25,7 @@ public class Notifications extends Module {
     }
 
     public static void pushRaw(String title, String message) {
+        if (INSTANCE == null || !INSTANCE.isEnabled()) return;
         NotificationManager.getManager().post(
                 title,
                 message == null ? "" : message,
@@ -34,9 +34,14 @@ public class Notifications extends Module {
         );
     }
 
-    @SubscribeEvent
-    public void onRenderGameOverlay(RenderGameOverlayEvent.Post event) {
-        if (event.type == RenderGameOverlayEvent.ElementType.ALL) {
+    @Override
+    public void onDisabled() {
+        NotificationManager.getManager().clear();
+    }
+
+    @EventTarget
+    public void onRender2D(Render2DEvent event) {
+        if (this.isEnabled()) {
             NotificationManager.getManager().updateAndRender();
         }
     }

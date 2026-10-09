@@ -1,10 +1,10 @@
 package crewx.module.modules.combat;
 
-/*
- * Adapted from LibreBounce Backtrack.
- * Upstream: https://github.com/LibreBounce/LibreBounce/blob/main/src/main/java/net/ccbluex/liquidbounce/features/module/modules/combat/Backtrack.kt
- * Copyright (c) CCBlueX contributors. Licensed under GPL-3.0.
- */
+
+
+
+
+
 
 import crewx.CrewX;
 import crewx.event.EventTarget;
@@ -68,6 +68,7 @@ public class Backtrack extends Module {
     private final FloatProperty distanceMin = new FloatProperty("DistanceMin", 2.0F, 0.0F, 6.0F);
     private final FloatProperty distanceMax = new FloatProperty("DistanceMax", 3.0F, 0.0F, 6.0F);
     private final BooleanProperty smart = new BooleanProperty("Smart", true);
+    private final BooleanProperty teams = new BooleanProperty("Teams", false);
     private final FloatProperty advantageThreshold = new FloatProperty("AdvantageThreshold", 0.0F, 0.0F, 1.0F,
             () -> this.smart.getValue());
     private final ModeProperty targetHurtTimeHandling = new ModeProperty("TargetHurtTimeHandling", 2,
@@ -450,7 +451,7 @@ public class Backtrack extends Module {
         if (entity instanceof EntityPlayer) {
             EntityPlayer player = (EntityPlayer) entity;
             try {
-                if (TeamUtil.isSameTeam(player) || TeamUtil.isFriend(player)) {
+                if ((this.teams.getValue() && TeamUtil.isSameTeam(player)) || TeamUtil.isFriend(player)) {
                     return false;
                 }
             } catch (Throwable ignored) {
