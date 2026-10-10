@@ -1,74 +1,100 @@
 param(
-    [string]$Jdk17 = $env:JAVA_HOME
+    [string]$Jdk17 = 'C:\Program Files\Java\jdk-17',
+    [string]$Jdk8 = '',
+    [string]$GradleUserHome = '',
+    [string]$CMake = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $taskRoot = $PSScriptRoot
-$taskJavaProject = Join-Path $taskRoot 'CrewX-2.1'
-$taskNative = Join-Path $taskRoot 'native'
-$taskTools = Join-Path $taskRoot 'tools'
+$taskProject = Join-Path $taskRoot 'CrewX-2.1'
+$taskLibs = Join-Path $taskProject 'build\libs'
+$taskClasses = Join-Path $taskRoot 'build-tools'
+$taskBuild = Join-Path $taskRoot 'native-build'
 $taskOutput = Join-Path $taskRoot 'dist'
 
-if (-not $Jdk17 -or -not (Test-Path -LiteralPath (Join-Path $Jdk17 'bin\javac.exe'))) {
-    throw 'Informe o JDK 17: .\Build-Injector.ps1 -Jdk17 "C:\caminho\jdk-17"'
+if (-not (Test-Path -LiteralPath (Join-Path $Jdk17 'bin\javac.exe'))) {
+    throw "JDK 17 nao encontrado: $Jdk17"
 }
+if ($Jdk8 -and -not (Test-Path -LiteralPath (Join-Path $Jdk8 'lib\tools.jar'))) {
+    throw "JDK 8 completo nao encontrado: $Jdk8"
+}
+if ($GradleUserHome) { $env:GRADLE_USER_HOME = $GradleUserHome }
+if (-not $env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME = Join-Path $env:USERPROFILE '.gradle' }
 $env:JAVA_HOME = (Resolve-Path -LiteralPath $Jdk17).Path
 $taskJava = Join-Path $env:JAVA_HOME 'bin\java.exe'
 $taskJavac = Join-Path $env:JAVA_HOME 'bin\javac.exe'
+$taskGradleProperties = Join-Path $taskProject 'gradle.properties'
+$originalProperties = [System.IO.File]::ReadAllText($taskGradleProperties)
 
-Push-Location $taskJavaProject
 try {
-    & (Join-Path $taskJavaProject 'gradlew.bat') assemble
-    if ($LASTEXITCODE -ne 0) { throw 'Falha no build Java do CrewX.' }
+    if ($Jdk8) {
+        $jdk8Path = (Resolve-Path -LiteralPath $Jdk8).Path.Replace('\', '/')
+        [System.IO.File]::WriteAllText($taskGradleProperties,
+            $originalProperties + "`r`norg.gradle.java.installations.auto-detect=false`r`norg.gradle.java.installations.paths=$jdk8Path`r`n",
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    Push-Location $taskProject
+    try {
+        & (Join-Path $taskProject 'gradlew.bat') assemble
+        if ($LASTEXITCODE -ne 0) { throw 'Falha no build Java do CrewX.' }
+    } finally { Pop-Location }
 } finally {
-    Pop-Location
+    [System.IO.File]::WriteAllText($taskGradleProperties, $originalProperties,
+        [System.Text.UTF8Encoding]::new($false))
 }
 
-$taskAsmBase = Join-Path $env:USERPROFILE '.gradle\caches\modules-2\files-2.1\org.ow2.asm'
-$taskAsmJars = @()
-foreach ($taskModule in @('asm', 'asm-commons', 'asm-tree')) {
-    $taskCandidates = @(Get-ChildItem -LiteralPath (Join-Path $taskAsmBase $taskModule) -Recurse -Filter "$taskModule-9.7.jar" -File -ErrorAction SilentlyContinue)
-    if ($taskCandidates.Count -eq 0) { throw "Dependencia ASM 9.7 ausente: $taskModule" }
-    $taskAsmJars += $taskCandidates[0].FullName
+$asmBase = Join-Path $env:GRADLE_USER_HOME 'caches\modules-2\files-2.1\org.ow2.asm'
+$asmJars = @()
+foreach ($module in @('asm', 'asm-commons', 'asm-tree')) {
+    $candidate = Get-ChildItem -LiteralPath (Join-Path $asmBase $module) -Recurse `
+        -Filter "$module-9.7.jar" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $candidate) { throw "Dependencia ASM 9.7 ausente: $module" }
+    $asmJars += $candidate.FullName
 }
-$taskAsmCp = $taskAsmJars -join ';'
-$taskClasses = Join-Path $taskRoot 'build-tools'
+$asmCp = $asmJars -join ';'
 New-Item -ItemType Directory -Path $taskClasses -Force | Out-Null
-& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java')
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar as ferramentas de empacotamento.' }
+& $taskJavac -cp $asmCp -d $taskClasses `
+    (Join-Path $taskRoot 'tools\AccessorRewriter.java') `
+    (Join-Path $taskRoot 'tools\RemapCrewToNotch.java')
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar ferramentas de empacotamento.' }
 
-$taskLibs = Join-Path $taskJavaProject 'build\libs'
-$taskNamedInput = Get-ChildItem -LiteralPath (Join-Path $taskJavaProject 'build\intermediates') -Filter '*non-obfuscated-with-deps.jar' -File | Select-Object -First 1
-if (-not $taskNamedInput) { throw 'JAR named com dependencias nao foi gerado.' }
-$taskForgeInput = Join-Path $taskLibs 'CrewX.jar'
-$taskForgePayload = Join-Path $taskLibs 'CrewX-inject-forge.jar'
-$taskNamedPayload = Join-Path $taskLibs 'CrewX-inject-named.jar'
-$taskNotchPayload = Join-Path $taskLibs 'CrewX-inject-notch.jar'
-foreach ($taskFile in @($taskForgePayload, $taskNamedPayload, $taskNotchPayload)) {
-    if (Test-Path -LiteralPath $taskFile) { Remove-Item -LiteralPath $taskFile -Force }
+$namedInput = Get-ChildItem -LiteralPath (Join-Path $taskProject 'build\intermediates') `
+    -Filter '*non-obfuscated-with-deps.jar' -File | Select-Object -First 1
+if (-not $namedInput) { throw 'JAR named nao foi gerado.' }
+$forgePayload = Join-Path $taskLibs 'CrewX-inject-forge.jar'
+$namedPayload = Join-Path $taskLibs 'CrewX-inject-named.jar'
+$notchPayload = Join-Path $taskLibs 'CrewX-inject-notch.jar'
+& $taskJava -cp "$taskClasses;$asmCp" AccessorRewriter `
+    (Join-Path $taskLibs 'CrewX.jar') $forgePayload
+if ($LASTEXITCODE -ne 0) { throw 'Falha no payload Forge.' }
+& $taskJava -cp "$taskClasses;$asmCp" AccessorRewriter `
+    $namedInput.FullName $namedPayload
+if ($LASTEXITCODE -ne 0) { throw 'Falha no payload Lunar.' }
+$maps = Join-Path $taskProject 'src\main\resources\crewx\inject'
+& $taskJava -cp "$taskClasses;$asmCp" RemapCrewToNotch $namedPayload $notchPayload `
+    (Join-Path $maps 'notch-joined.srg') `
+    (Join-Path $maps 'notch-methods.csv') `
+    (Join-Path $maps 'notch-fields.csv')
+if ($LASTEXITCODE -ne 0) { throw 'Falha no payload Badlion.' }
+
+if (-not $CMake) {
+    $foundCMake = Get-Command cmake -ErrorAction SilentlyContinue
+    if ($foundCMake) { $CMake = $foundCMake.Source }
+    else {
+        $CMake = 'C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+    }
 }
-& $taskJava -cp "$taskClasses;$taskAsmCp" AccessorRewriter $taskForgeInput $taskForgePayload
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload Forge.' }
-& $taskJava -cp "$taskClasses;$taskAsmCp" AccessorRewriter $taskNamedInput.FullName $taskNamedPayload
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload Lunar.' }
-
-$taskMappings = Join-Path $taskJavaProject 'src\main\resources\crewx\inject'
-& $taskJava -cp "$taskClasses;$taskAsmCp" RemapCrewToNotch $taskNamedPayload $taskNotchPayload `
-    (Join-Path $taskMappings 'notch-joined.srg') `
-    (Join-Path $taskMappings 'notch-methods.csv') `
-    (Join-Path $taskMappings 'notch-fields.csv')
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload Badlion.' }
-
-$taskBuild = Join-Path $taskRoot 'native-build'
-& cmake -S $taskNative -B $taskBuild -A x64 `
+if (-not (Test-Path -LiteralPath $CMake)) { throw "CMake nao encontrado: $CMake" }
+& $CMake -S (Join-Path $taskRoot 'native') -B $taskBuild -A x64 `
     "-DCREWX_JAVA_HOME=$env:JAVA_HOME" `
-    "-DCREWX_PRODUCT_JAR=$taskForgePayload" `
-    "-DCREWX_PRODUCT_JAR_NAMED=$taskNamedPayload" `
-    "-DCREWX_PRODUCT_JAR_NOTCH=$taskNotchPayload"
+    "-DCREWX_PRODUCT_JAR=$forgePayload" `
+    "-DCREWX_PRODUCT_JAR_NAMED=$namedPayload" `
+    "-DCREWX_PRODUCT_JAR_NOTCH=$notchPayload"
 if ($LASTEXITCODE -ne 0) { throw 'Falha na configuracao nativa.' }
-& cmake --build $taskBuild --config Release --target CrewXInjector
-if ($LASTEXITCODE -ne 0) { throw 'Falha no build do executavel.' }
+& $CMake --build $taskBuild --config Release --target CrewXInjector
+if ($LASTEXITCODE -ne 0) { throw 'Falha no build do EXE.' }
 New-Item -ItemType Directory -Path $taskOutput -Force | Out-Null
-$taskExe = Join-Path $taskBuild 'dist\CrewXInjector.exe'
-Copy-Item -LiteralPath $taskExe -Destination (Join-Path $taskOutput 'CrewXInjector.exe') -Force
+Copy-Item -LiteralPath (Join-Path $taskBuild 'dist\CrewXInjector.exe') `
+    -Destination (Join-Path $taskOutput 'CrewXInjector.exe') -Force
 Write-Host "Concluido: $(Join-Path $taskOutput 'CrewXInjector.exe')"

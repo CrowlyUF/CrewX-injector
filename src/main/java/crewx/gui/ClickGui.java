@@ -832,9 +832,15 @@ public class ClickGui extends GuiScreen {
     private void loadConfig(File file) {
         if (file == null) return;
         String name = this.configName(file);
-        new Config(name, false).load();
-        this.selectedConfigName = name;
-        this.refreshConfigs();
+        try {
+            boolean loaded = new Config(name, false).load(false);
+            if (loaded) {
+                this.selectedConfigName = name;
+                this.refreshConfigs();
+            }
+        } catch (Throwable error) {
+            this.setConfigImportStatus("Could not apply config: " + name);
+        }
     }
 
     private void setActiveTab(ViewTab tab) {
@@ -870,7 +876,7 @@ public class ClickGui extends GuiScreen {
         if (this.scrollDragActive) {
             float delta = mouseY - this.lastScrollDragY;
             if (this.scrollDragTarget == DRAG_MODULES) this.targetModuleScroll -= delta;
-            else if (this.scrollDragTarget == DRAG_SETTINGS) this.targetSettingsScroll -= delta;
+            else if (this.scrollDragTarget == DRAG_SETTINGS) this.targetModuleScroll -= delta;
             else if (this.scrollDragTarget == DRAG_CONFIGS) this.targetConfigScroll -= delta;
         }
         this.lastScrollDragY = mouseY;
@@ -1042,11 +1048,11 @@ public class ClickGui extends GuiScreen {
         if (mx >= this.windowX + this.sidebarWidth && mx <= this.windowX + this.windowWidth
                 && my >= this.moduleListY && my <= this.bodyY + this.bodyHeight) {
             float selectedTop = this.selectedModuleRowTop();
-            if (this.selectedModule != null && selectedTop >= 0.0F) {
+            if (this.selectedModule != null && this.getVisibleModules().contains(this.selectedModule)) {
                 float settingsTop = selectedTop + MODULE_ROW_HEIGHT + 25.0F;
                 if (my >= settingsTop && my <= settingsTop + this.propertyContentHeight()) {
                     boolean consumed = this.dispatchSettingClick(mx, my, mouseButton, true);
-                    if (mouseButton == 0 && !consumed) this.beginScrollDrag(DRAG_MODULES, my);
+                    if (mouseButton == 0 && !consumed) this.beginScrollDrag(DRAG_SETTINGS, my);
                     if (consumed || mouseButton == 0 || mouseButton == 1) return;
                 }
             }

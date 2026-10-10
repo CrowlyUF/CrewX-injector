@@ -4,6 +4,7 @@ import com.google.gson.*;
 import crewx.CrewX;
 import crewx.mixin.IAccessorMinecraft;
 import crewx.module.Module;
+import crewx.module.modules.render.GuiModule;
 import crewx.util.ChatUtil;
 import crewx.property.Property;
 import net.minecraft.client.Minecraft;
@@ -119,32 +120,49 @@ public class Config {
                         }
                     }
 
-                    if (object.has("toggled") && !resetTogglesToDefaults) {
+
+
+
+                    if (!(module instanceof GuiModule) && object.has("toggled") && !resetTogglesToDefaults) {
                         JsonElement toggled = object.get("toggled");
-                        if (toggled != null && toggled.isJsonPrimitive()) {
-                            boolean want = toggled.getAsBoolean();
-                            if ("Insults".equals(module.getName())) {
-                                File marker = new File(file.getParentFile(), ".crewx_reset_insults_v4");
-                                if (!marker.exists()) {
-                                    want = false;
-                                    try { marker.createNewFile(); } catch (Exception ignored) {}
+                        if (toggled != null && toggled.isJsonPrimitive()
+                                && toggled.getAsJsonPrimitive().isBoolean()) {
+                            try {
+                                boolean want = toggled.getAsBoolean();
+                                if ("Insults".equals(module.getName())) {
+                                    File marker = new File(file.getParentFile(), ".crewx_reset_insults_v4");
+                                    if (!marker.exists()) {
+                                        want = false;
+                                        try { marker.createNewFile(); } catch (Exception ignored) {}
+                                    }
                                 }
+                                module.setEnabled(want);
+                            } catch (Exception e) {
+                                ((IAccessorMinecraft) mc).getLogger().warn(String.format("Invalid toggle state for module %s", module.getName()));
                             }
-                            module.setEnabled(want);
                         }
                     }
 
                     if (object.has("key")) {
                         JsonElement key = object.get("key");
-                        if (key != null && key.isJsonPrimitive()) {
-                            module.setKey(key.getAsInt());
+                        if (key != null && key.isJsonPrimitive() && key.getAsJsonPrimitive().isNumber()) {
+                            try {
+                                module.setKey(key.getAsInt());
+                            } catch (Exception e) {
+                                ((IAccessorMinecraft) mc).getLogger().warn(String.format("Invalid keybind for module %s", module.getName()));
+                            }
                         }
                     }
 
                     if (object.has("hidden")) {
                         JsonElement hidden = object.get("hidden");
-                        if (hidden != null && hidden.isJsonPrimitive()) {
-                            module.setHidden(hidden.getAsBoolean());
+                        if (hidden != null && hidden.isJsonPrimitive()
+                                && hidden.getAsJsonPrimitive().isBoolean()) {
+                            try {
+                                module.setHidden(hidden.getAsBoolean());
+                            } catch (Exception e) {
+                                ((IAccessorMinecraft) mc).getLogger().warn(String.format("Invalid hidden state for module %s", module.getName()));
+                            }
                         }
                     }
                 }

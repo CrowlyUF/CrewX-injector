@@ -146,7 +146,7 @@ public class ProjectileAimbot extends Module {
         if (this.teams.getValue() && TeamUtil.isSameTeam(player)) return false;
         if (this.antiBot.getValue()) {
             AntiBot module = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-            if (module != null && module.isEnabled() && module.isBot(player)) return false;
+            if (module != null && module.isBot(player)) return false;
         }
         return true;
     }

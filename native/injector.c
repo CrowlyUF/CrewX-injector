@@ -4,7 +4,6 @@
 #include <windows.h>
 #include <tlhelp32.h>
 
-#include <conio.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -206,104 +205,275 @@ static size_t enumerate_candidates(
     return count;
 }
 
-static void clear_console_rows(HANDLE output, SHORT rows) {
-    CONSOLE_SCREEN_BUFFER_INFO info;
-    COORD start = {0, 0};
-    DWORD cells;
-    DWORD written;
-    if (!GetConsoleScreenBufferInfo(output, &info)) return;
-    if (rows > info.dwSize.Y) rows = info.dwSize.Y;
-    cells = (DWORD)info.dwSize.X * (DWORD)rows;
-    FillConsoleOutputCharacterW(output, L' ', cells, start, &written);
-    FillConsoleOutputAttribute(output, info.wAttributes, cells, start, &written);
+#define SELECTOR_WIDTH 740
+#define SELECTOR_HEIGHT 420
+#define CARD_LEFT 190
+#define CARD_TOP 174
+#define CARD_WIDTH 360
+#define CARD_HEIGHT 50
+#define CARD_GAP 10
+#define VISIBLE_CARDS 3
+
+typedef struct selector_state {
+    process_candidate candidates[MAX_CANDIDATES];
+    size_t count;
+    DWORD selected_process_id;
+    size_t scroll_offset;
+} selector_state;
+
+static selector_state g_selector;
+static int g_hovered_card = -1;
+
+static void fill_round_rect(HDC dc, int left, int top, int right, int bottom,
+        int radius, COLORREF color) {
+    HBRUSH brush = CreateSolidBrush(color);
+    HGDIOBJ old_brush = SelectObject(dc, brush);
+    HGDIOBJ old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+    RoundRect(dc, left, top, right, bottom, radius, radius);
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    DeleteObject(brush);
 }
 
-static void render_selector(const process_candidate *candidates, size_t count,
-        size_t selected, const wchar_t *dll_path) {
-    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_SCREEN_BUFFER_INFO info;
-    COORD home = {0, 0};
+static void centered_text(HDC dc, const wchar_t *text, int y, int width) {
+    SIZE size;
+    GetTextExtentPoint32W(dc, text, (int)wcslen(text), &size);
+    TextOutW(dc, (width - size.cx) / 2, y, text, (int)wcslen(text));
+}
+
+static void refresh_selector(void) {
     size_t index;
-    static SHORT previous_rows = 0;
-    if (GetConsoleScreenBufferInfo(output, &info)) {
-        SHORT rows = (SHORT)(count + 5);
-        if (count == 0) ++rows;
-        clear_console_rows(output, rows > previous_rows ? rows : previous_rows);
-        SetConsoleCursorPosition(output, home);
-        previous_rows = rows;
-    }
-    wprintf(L"CrewX Injector\n");
-    wprintf(L"DLL: %ls\n\n", dll_path);
-    wprintf(L"Select the Minecraft Java process (Up/Down, Enter, Esc)\n\n");
-    if (count == 0) {
-        wprintf(L"  No java.exe/javaw.exe processes. Waiting...\n");
-    } else {
-        for (index = 0; index < count; ++index) {
-            wprintf(L"%lc [%5lu] %-9ls  %ls\n",
-                    index == selected ? L'>' : L' ',
-                    (unsigned long)candidates[index].process_id,
-                    candidates[index].executable,
-                    candidates[index].title[0] == L'\0' ? L"(no visible window)" : candidates[index].title);
+    size_t visible_count = 0;
+    g_selector.count = enumerate_candidates(g_selector.candidates, MAX_CANDIDATES);
+    for (index = 0; index < g_selector.count; ++index) {
+        process_candidate *candidate = &g_selector.candidates[index];
+        if (candidate->title[0] == L'\0') continue;
+        if (visible_count != index) {
+            g_selector.candidates[visible_count] = *candidate;
         }
+        ++visible_count;
     }
-    fflush(stdout);
+    g_selector.count = visible_count;
+    if (g_selector.scroll_offset >= g_selector.count) g_selector.scroll_offset = 0;
+}
+
+static void paint_selector(HWND window) {
+    PAINTSTRUCT paint;
+    HDC dc = BeginPaint(window, &paint);
+    RECT full;
+    RECT card;
+    HFONT title_font = CreateFontW(-58, 0, 0, 0, FW_BOLD, FALSE, FALSE,
+            FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HFONT card_font = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,
+            FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HFONT detail_font = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+            FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HFONT control_font = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE,
+            FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HFONT previous_font;
+    HBRUSH brush;
+    size_t index;
+    GetClientRect(window, &full);
+    brush = CreateSolidBrush(RGB(42, 42, 43));
+    FillRect(dc, &full, brush);
+    DeleteObject(brush);
+    {
+        POINT top_accent[] = {{0, 0}, {136, 0}, {78, 98}, {0, 143}};
+        POINT bottom_accent[] = {{580, 420}, {740, 275}, {740, 420}};
+        HBRUSH accent = CreateSolidBrush(RGB(35, 35, 36));
+        HGDIOBJ previous_brush = SelectObject(dc, accent);
+        HGDIOBJ previous_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Polygon(dc, top_accent, 4);
+        Polygon(dc, bottom_accent, 3);
+        SelectObject(dc, previous_pen);
+        SelectObject(dc, previous_brush);
+        DeleteObject(accent);
+    }
+    {
+        HPEN border = CreatePen(PS_SOLID, 1, RGB(91, 91, 95));
+        HGDIOBJ previous_pen = SelectObject(dc, border);
+        HGDIOBJ previous_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+        RoundRect(dc, 1, 1, SELECTOR_WIDTH - 1, SELECTOR_HEIGHT - 1, 12, 12);
+        SelectObject(dc, previous_brush);
+        SelectObject(dc, previous_pen);
+        DeleteObject(border);
+    }
+    SetBkMode(dc, TRANSPARENT);
+    previous_font = (HFONT)SelectObject(dc, title_font);
+    {
+        SIZE crew_size, x_size;
+        int title_x;
+        GetTextExtentPoint32W(dc, L"Crew", 4, &crew_size);
+        GetTextExtentPoint32W(dc, L"X", 1, &x_size);
+        title_x = (SELECTOR_WIDTH - crew_size.cx - x_size.cx) / 2;
+        SetTextColor(dc, RGB(249, 249, 250));
+        TextOutW(dc, title_x, 23, L"Crew", 4);
+        SetTextColor(dc, RGB(230, 63, 68));
+        TextOutW(dc, title_x + crew_size.cx, 23, L"X", 1);
+    }
+    SelectObject(dc, detail_font);
+    SetTextColor(dc, RGB(223, 223, 225));
+    centered_text(dc, L"Selecione o Minecraft para injetar", 111, SELECTOR_WIDTH);
+    SetTextColor(dc, RGB(150, 150, 154));
+    centered_text(dc, L"Aguarde o jogo carregar antes de continuar", 128, SELECTOR_WIDTH);
+    fill_round_rect(dc, SELECTOR_WIDTH - 68, 12, SELECTOR_WIDTH - 40, 36,
+            6, RGB(48, 48, 50));
+    fill_round_rect(dc, SELECTOR_WIDTH - 36, 12, SELECTOR_WIDTH - 8, 36,
+            6, RGB(48, 48, 50));
+    SelectObject(dc, control_font);
+    SetTextColor(dc, RGB(180, 180, 184));
+    TextOutW(dc, SELECTOR_WIDTH - 60, 12, L"–", 1);
+    TextOutW(dc, SELECTOR_WIDTH - 28, 12, L"×", 1);
+    SelectObject(dc, detail_font);
+    if (g_selector.count == 0) {
+        SetTextColor(dc, RGB(160, 160, 165));
+        centered_text(dc, L"Aguardando o Minecraft...", CARD_TOP + 18, SELECTOR_WIDTH);
+    }
+    for (index = g_selector.scroll_offset;
+            index < g_selector.count && index < g_selector.scroll_offset + VISIBLE_CARDS;
+            ++index) {
+        wchar_t pid_label[40];
+        int row = (int)(index - g_selector.scroll_offset);
+        int top = CARD_TOP + row * (CARD_HEIGHT + CARD_GAP);
+        card.left = CARD_LEFT;
+        card.top = top;
+        card.right = CARD_LEFT + CARD_WIDTH;
+        card.bottom = top + CARD_HEIGHT;
+        fill_round_rect(dc, card.left, card.top, card.right, card.bottom, 8,
+                row == g_hovered_card ? RGB(78, 78, 81) : RGB(67, 67, 70));
+        SetTextColor(dc, RGB(232, 232, 235));
+        SelectObject(dc, card_font);
+        card.left += 12;
+        card.top += 7;
+        card.right -= 12;
+        card.bottom = card.top + 18;
+        DrawTextW(dc, g_selector.candidates[index].title, -1, &card,
+                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+        swprintf_s(pid_label, 40, L"PID %lu",
+                (unsigned long)g_selector.candidates[index].process_id);
+        SelectObject(dc, detail_font);
+        SetTextColor(dc, RGB(173, 173, 177));
+        TextOutW(dc, CARD_LEFT + 12, top + 30, pid_label, (int)wcslen(pid_label));
+    }
+    SelectObject(dc, previous_font);
+    DeleteObject(title_font);
+    DeleteObject(card_font);
+    DeleteObject(detail_font);
+    DeleteObject(control_font);
+    EndPaint(window, &paint);
+}
+
+static LRESULT CALLBACK selector_window_proc(HWND window, UINT message,
+        WPARAM wparam, LPARAM lparam) {
+    switch (message) {
+        case WM_CREATE:
+            refresh_selector();
+            SetTimer(window, 1, REFRESH_INTERVAL_MS, NULL);
+            return 0;
+        case WM_TIMER:
+            refresh_selector();
+            InvalidateRect(window, NULL, FALSE);
+            return 0;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_MOUSEMOVE: {
+            int x = (short)LOWORD(lparam);
+            int y = (short)HIWORD(lparam);
+            int hovered = -1;
+            if (x >= CARD_LEFT && x < CARD_LEFT + CARD_WIDTH && y >= CARD_TOP) {
+                int row = (y - CARD_TOP) / (CARD_HEIGHT + CARD_GAP);
+                if (row < VISIBLE_CARDS
+                        && (y - CARD_TOP) % (CARD_HEIGHT + CARD_GAP) < CARD_HEIGHT
+                        && g_selector.scroll_offset + (size_t)row < g_selector.count) {
+                    hovered = row;
+                }
+            }
+            if (hovered != g_hovered_card) {
+                g_hovered_card = hovered;
+                InvalidateRect(window, NULL, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSEWHEEL:
+            if (g_selector.count > VISIBLE_CARDS) {
+                int delta = GET_WHEEL_DELTA_WPARAM(wparam);
+                if (delta < 0 && g_selector.scroll_offset + VISIBLE_CARDS < g_selector.count)
+                    ++g_selector.scroll_offset;
+                if (delta > 0 && g_selector.scroll_offset > 0)
+                    --g_selector.scroll_offset;
+                InvalidateRect(window, NULL, FALSE);
+            }
+            return 0;
+        case WM_LBUTTONDOWN: {
+            int x = (short)LOWORD(lparam);
+            int y = (short)HIWORD(lparam);
+            if (y >= 12 && y < 36 && x >= SELECTOR_WIDTH - 36 && x < SELECTOR_WIDTH - 8) {
+                DestroyWindow(window);
+                return 0;
+            }
+            if (y >= 12 && y < 36 && x >= SELECTOR_WIDTH - 68 && x < SELECTOR_WIDTH - 40) {
+                ShowWindow(window, SW_MINIMIZE);
+                return 0;
+            }
+            if (x >= CARD_LEFT && x < CARD_LEFT + CARD_WIDTH && y >= CARD_TOP) {
+                size_t row = (size_t)((y - CARD_TOP) / (CARD_HEIGHT + CARD_GAP));
+                size_t index = g_selector.scroll_offset + row;
+                if (row < VISIBLE_CARDS && index < g_selector.count
+                        && (y - CARD_TOP) % (CARD_HEIGHT + CARD_GAP) < CARD_HEIGHT) {
+                    g_selector.selected_process_id = g_selector.candidates[index].process_id;
+                    DestroyWindow(window);
+                }
+            }
+            ReleaseCapture();
+            SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            return 0;
+        }
+        case WM_PAINT:
+            paint_selector(window);
+            return 0;
+        case WM_DESTROY:
+            KillTimer(window, 1);
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
 }
 
 static DWORD select_process(const wchar_t *dll_path) {
-    process_candidate candidates[MAX_CANDIDATES];
-    size_t count = 0;
-    size_t selected = 0;
-    DWORD selected_process_id = 0;
-    ULONGLONG next_refresh = 0;
-    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_CURSOR_INFO original_cursor;
-    CONSOLE_CURSOR_INFO hidden_cursor;
-    int cursor_changed = 0;
-
-    if (GetConsoleCursorInfo(output, &original_cursor)) {
-        hidden_cursor = original_cursor;
-        hidden_cursor.bVisible = FALSE;
-        cursor_changed = SetConsoleCursorInfo(output, &hidden_cursor);
+    WNDCLASSW window_class;
+    HWND window;
+    MSG message;
+    (void)dll_path;
+    memset(&g_selector, 0, sizeof(g_selector));
+    memset(&window_class, 0, sizeof(window_class));
+    window_class.lpfnWndProc = selector_window_proc;
+    window_class.hInstance = GetModuleHandleW(NULL);
+    window_class.lpszClassName = L"CrewXProcessSelector";
+    window_class.hCursor = LoadCursorW(NULL, MAKEINTRESOURCEW(32512));
+    window_class.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    if (!RegisterClassW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return 0;
+    window = CreateWindowExW(WS_EX_APPWINDOW, window_class.lpszClassName,
+            L"CrewX", WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX,
+            (GetSystemMetrics(SM_CXSCREEN) - SELECTOR_WIDTH) / 2,
+            (GetSystemMetrics(SM_CYSCREEN) - SELECTOR_HEIGHT) / 2,
+            SELECTOR_WIDTH, SELECTOR_HEIGHT, NULL, NULL,
+            window_class.hInstance, NULL);
+    if (window == NULL) return 0;
+    SetWindowRgn(window, CreateRoundRectRgn(0, 0, SELECTOR_WIDTH + 1,
+            SELECTOR_HEIGHT + 1, 12, 12), TRUE);
+    ShowWindow(window, SW_SHOW);
+    UpdateWindow(window);
+    SetForegroundWindow(window);
+    while (GetMessageW(&message, NULL, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
     }
-    for (;;) {
-        ULONGLONG now = GetTickCount64();
-        if (now >= next_refresh) {
-            DWORD previous_id = count == 0 ? 0 : candidates[selected].process_id;
-            size_t index;
-            count = enumerate_candidates(candidates, MAX_CANDIDATES);
-            selected = 0;
-            for (index = 0; index < count; ++index) {
-                if (candidates[index].process_id == previous_id) {
-                    selected = index;
-                    break;
-                }
-            }
-            render_selector(candidates, count, selected, dll_path);
-            next_refresh = now + REFRESH_INTERVAL_MS;
-        }
-        if (_kbhit()) {
-            int key = _getwch();
-            if (key == 0 || key == 0xe0) {
-                key = _getwch();
-                if (key == 72 && count != 0) {
-                    selected = selected == 0 ? count - 1 : selected - 1;
-                    render_selector(candidates, count, selected, dll_path);
-                } else if (key == 80 && count != 0) {
-                    selected = (selected + 1) % count;
-                    render_selector(candidates, count, selected, dll_path);
-                }
-            } else if (key == 13 && count != 0) {
-                selected_process_id = candidates[selected].process_id;
-                break;
-            } else if (key == 27) {
-                break;
-            }
-        }
-        Sleep(25);
-    }
-    if (cursor_changed) SetConsoleCursorInfo(output, &original_cursor);
-    wprintf(L"\n");
-    return selected_process_id;
+    UnregisterClassW(window_class.lpszClassName, window_class.hInstance);
+    return g_selector.selected_process_id;
 }
 
 static uintptr_t remote_module_base(DWORD process_id, const wchar_t *module_name) {
@@ -563,11 +733,15 @@ int wmain(int argc, wchar_t **argv) {
     if (!stage_embedded_dll((DWORD)process_id, dll_path, MAX_PATH)) {
         fwprintf(stderr, L"Could not extract the bundled injection component.\n");
         log_inject(L"embedded DLL staging failed; Windows error=%lu", (unsigned long)GetLastError());
+        MessageBoxW(NULL, L"Nao foi possivel preparar o CrewX. Consulte o log em %TEMP%\\CrewX21\\injector.log.",
+                L"CrewX", MB_ICONERROR | MB_OK);
         return 3;
     }
     {
         int injection_result = inject_library((DWORD)process_id, dll_path);
         if (injection_result == 0) {
+            MessageBoxW(NULL, L"A injecao falhou. Consulte o log em %TEMP%\\CrewX21\\injector.log.",
+                    L"CrewX", MB_ICONERROR | MB_OK);
             return 3;
         }
         if (injection_result == 2) {

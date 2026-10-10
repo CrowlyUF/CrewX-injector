@@ -87,14 +87,15 @@ configure_file(loader_payload.rc.in generated/loader_payload.rc @ONLY)
 set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/loader_payload.rc"
         APPEND PROPERTY OBJECT_DEPENDS "${CREWX_EMBEDDED_DLL}")
 
-add_executable(CrewXInjector injector.c
+add_executable(CrewXInjector WIN32 injector.c
         "${CMAKE_CURRENT_BINARY_DIR}/generated/loader_payload.rc")
 add_dependencies(CrewXInjector CrewXNative)
 target_compile_definitions(CrewXInjector PRIVATE
         WIN32_LEAN_AND_MEAN
         _CRT_SECURE_NO_WARNINGS)
 target_compile_options(CrewXInjector PRIVATE /W4)
-target_link_libraries(CrewXInjector PRIVATE advapi32)
+target_link_libraries(CrewXInjector PRIVATE advapi32 user32 gdi32)
+target_link_options(CrewXInjector PRIVATE "/ENTRY:wmainCRTStartup")
 
 set_property(TARGET CrewXNative CrewXInjector PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

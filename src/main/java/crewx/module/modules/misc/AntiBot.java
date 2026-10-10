@@ -91,7 +91,11 @@ public class AntiBot extends Module {
 
     @EventTarget
     public void onPacket(PacketEvent event) {
-        if (!this.isEnabled()) return;
+        ProjectileAimbot projectileAimbot = CrewX.moduleManager == null ? null
+                : (ProjectileAimbot) CrewX.moduleManager.modules.get(ProjectileAimbot.class);
+        boolean projectileNeedsBotData = projectileAimbot != null
+                && projectileAimbot.isEnabled() && projectileAimbot.antiBot.getValue();
+        if (!this.isEnabled() && !projectileNeedsBotData) return;
 
         Packet<?> packet = event.getPacket();
         if (packet == null) return;

@@ -26,6 +26,7 @@ import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Objects;
+import org.lwjgl.input.Keyboard;
 
 public class CrewX {
     public static volatile boolean initializationComplete;
@@ -218,6 +219,15 @@ public class CrewX {
                     if (defaultsMarker.createNewFile()) config.save();
                 } catch (Exception ignored) {
                 }
+            }
+            File insertBindMarker = new File(config.file.getParentFile(), ".crewx_insert_bind_v1");
+            if (!insertBindMarker.exists()) {
+                GuiModule guiModule = (GuiModule) moduleManager.modules.get(GuiModule.class);
+                if (guiModule != null && guiModule.getKey() == Keyboard.KEY_RSHIFT) {
+                    guiModule.setKey(Keyboard.KEY_INSERT);
+                    config.save();
+                }
+                try { insertBindMarker.createNewFile(); } catch (Exception ignored) {}
             }
         }
         if (discordRPC.isEnabled()) {

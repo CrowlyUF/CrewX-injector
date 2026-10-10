@@ -23,7 +23,7 @@ public class GuiModule extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
     private static GuiModule INSTANCE;
     private static final Color FALLBACK_ACCENT = new Color(54, 211, 142);
-    private static final int DEFAULT_KEY = Keyboard.KEY_RSHIFT;
+    private static final int DEFAULT_KEY = Keyboard.KEY_INSERT;
 
     private boolean openNextTick = false;
     private ClickGui clickGui;
