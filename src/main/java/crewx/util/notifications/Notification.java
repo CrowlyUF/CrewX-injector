@@ -13,6 +13,8 @@ public class Notification implements INotification {
     private float x, tarX, y;
     public Translate translate;
 
+    public boolean placed;
+
     protected Notification(String header, String subtext, long displayTime, NotificationType type) {
         this.header = header;
         this.subtext = subtext;

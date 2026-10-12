@@ -44,6 +44,10 @@ public final class CrewXRuntimeTransformer implements Opcodes {
     private static final java.util.Set<String> CLAIMED =
             java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
 
+    static void resetAfterUnload() {
+        CLAIMED.clear();
+    }
+
     private static boolean claim(String className, String method) {
         boolean fresh = CLAIMED.add(className + "#" + method);
         if (!fresh) {
@@ -741,6 +745,27 @@ public final class CrewXRuntimeTransformer implements Opcodes {
             }
             @Override String hookName() { return "onChatMouseClicked"; }
             @Override String hookDescriptor() { return "(III)Z"; }
+        });
+        current = rewrite(current, output -> new ClassVisitor(ASM9, output) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if (!"drawScreen".equals(name) || !"(IIF)V".equals(descriptor)) return base;
+                return new MethodVisitor(ASM9, base) {
+                    private boolean replaced;
+                    @Override public void visitMethodInsn(int opcode, String owner, String methodName,
+                            String methodDesc, boolean isInterface) {
+                        if (!replaced && opcode == INVOKESTATIC && "drawRect".equals(methodName)
+                                && "(IIIII)V".equals(methodDesc)
+                                && owner.startsWith("net/minecraft/client/gui/")) {
+                            replaced = true;
+                            callHook(mv, "onChatInputBar", "(IIIII)V");
+                            return;
+                        }
+                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
+                    }
+                };
+            }
         });
         current = rewrite(current, output -> new TailPatch(output) {
             @Override boolean matches(String name, String descriptor) {
@@ -1709,11 +1734,31 @@ public final class CrewXRuntimeTransformer implements Opcodes {
         final boolean[] attack = new boolean[1];
         final boolean[] windowClick = new boolean[1];
         final boolean[] stoppedUsing = new boolean[1];
+        final int[] mining = new int[1];
         byte[] current = rewrite(original, output -> new ClassVisitor(ASM9, output) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String descriptor,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if (("clickBlock".equals(name) || "onPlayerDamageBlock".equals(name))
+                        && "(Lnet/minecraft/util/BlockPos;Lnet/minecraft/util/EnumFacing;)Z".equals(descriptor)) {
+                    mining[0]++;
+                    return new MethodVisitor(ASM9, base) {
+                        @Override
+                        public void visitCode() {
+                            super.visitCode();
+                            callHook(mv, "beginSilentMining", "()V");
+                        }
+
+                        @Override
+                        public void visitInsn(int opcode) {
+                            if (opcode == IRETURN || opcode == ATHROW) {
+                                callHook(mv, "endSilentMining", "()V");
+                            }
+                            super.visitInsn(opcode);
+                        }
+                    };
+                }
                 if ("attackEntity".equals(name)
                         && "(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/entity/Entity;)V"
                                 .equals(descriptor)) {
@@ -1775,6 +1820,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                 return null;
             }
         }
+        if (mining[0] != 2) CrewXBootstrap.log("transform: AutoTool Silent mining hooks=" + mining[0] + "/2");
         return current;
     }
 

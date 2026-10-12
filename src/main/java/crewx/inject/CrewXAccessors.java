@@ -200,6 +200,12 @@ public final class CrewXAccessors {
 
 
 
+    public static Object getParentScreen(Object target) {
+        return readField("net.minecraft.client.gui.GuiMultiplayer", "parentScreen", target);
+    }
+
+
+
 
 
     public static void setOnGround(Object target, boolean onGround) {

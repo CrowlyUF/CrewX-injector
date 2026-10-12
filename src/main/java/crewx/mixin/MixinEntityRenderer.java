@@ -75,9 +75,9 @@ public abstract class MixinEntityRenderer {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiScreen;drawScreen(IIF)V", shift = At.Shift.AFTER)
     )
     private void crewx$endGuiTransition(float partialTicks, long finishTimeNano, CallbackInfo callbackInfo) {
-        if (this.mc.currentScreen instanceof GuiMainMenu) {
-            CrewXTransition.endGuiRender();
-        }
+
+
+        CrewXTransition.endGuiRender();
     }
 
     @Inject(
@@ -85,6 +85,8 @@ public abstract class MixinEntityRenderer {
             at = {@At("HEAD")}
     )
     private void updateCameraAndRender(float float1, long long2, CallbackInfo callbackInfo) {
+
+        crewx.gui.BackdropBlur.beginFrame();
         if (this.mc.thePlayer != null && CrewX.moduleManager != null) {
             FreeLook freeLook = (FreeLook) CrewX.moduleManager.modules.get(FreeLook.class);
             if (freeLook != null && freeLook.isEnabled()) freeLook.prepare(this.mc.thePlayer);

@@ -30,6 +30,8 @@ import org.lwjgl.input.Keyboard;
 
 public class CrewX {
     public static volatile boolean initializationComplete;
+    public static volatile boolean unloaded;
+    private static volatile boolean shutdownHookRegistered;
     public static String clientName = "&7[&bCrewX&7]&r ";
     public static String version;
     public static RotationManager rotationManager;
@@ -113,7 +115,9 @@ public class CrewX {
         moduleManager.modules.put(Freeze.class, new Freeze());
         moduleManager.modules.put(Fly.class, new Fly());
         moduleManager.modules.put(FullBright.class, new FullBright());
+        moduleManager.modules.put(MotionBlur.class, new MotionBlur());
         moduleManager.modules.put(GhostHand.class, new GhostHand());
+        moduleManager.modules.put(MediaPlayer.class, new MediaPlayer());
         moduleManager.modules.put(GuiModule.class, new GuiModule());
         moduleManager.modules.put(HitSelect.class, new HitSelect());
         moduleManager.modules.put(HUD.class, new HUD());
@@ -180,6 +184,7 @@ public class CrewX {
         commandManager.commands.add(new ModuleCommand());
         commandManager.commands.add(new PlayerCommand());
         commandManager.commands.add(new ScriptCommand());
+        commandManager.commands.add(new SpotifyCommand());
         commandManager.commands.add(new ShowCommand());
         commandManager.commands.add(new TargetCommand());
         commandManager.commands.add(new ToggleCommand());
@@ -246,10 +251,13 @@ public class CrewX {
         if (targetManager.file.exists()) {
             targetManager.load();
         }
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            new Config(Config.lastConfig, false).save();
-            if (discordRPC != null) discordRPC.shutdown();
-        }));
+        if (!shutdownHookRegistered) {
+            shutdownHookRegistered = true;
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                if (!unloaded) new Config(Config.lastConfig, false).save();
+                if (discordRPC != null) discordRPC.shutdown();
+            }));
+        }
 
         try (InputStreamReader reader = new InputStreamReader(Objects.requireNonNull(CrewX.class.getResourceAsStream("/version.json")), StandardCharsets.UTF_8)) {
             JsonObject modInfo = new JsonParser().parse(reader).getAsJsonObject();
@@ -259,6 +267,9 @@ public class CrewX {
         }
 
         AccountManager.init();
+
+        EventManager.register(new crewx.gui.menu.MenuResources());
+        crewx.gui.menu.SpaceBackground.preload();
         initializationComplete = true;
     }
 

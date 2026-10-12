@@ -81,6 +81,7 @@ dependencies {
     shadowImpl("org.ow2.asm:asm-commons:9.7")
 
     runtimeOnly("me.djtheredstoner:DevAuth-forge-legacy:1.2.1")
+    testImplementation("junit:junit:4.13.2")
 }
 
 tasks.withType(JavaCompile::class) {

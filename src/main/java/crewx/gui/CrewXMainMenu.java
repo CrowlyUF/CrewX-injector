@@ -1,15 +1,32 @@
 package crewx.gui;
 
+import crewx.accountmanager.AccountManager;
+import crewx.accountmanager.auth.Account;
+import crewx.accountmanager.auth.SessionManager;
 import crewx.accountmanager.gui.GuiAccountManager;
-import java.io.IOException;
+import crewx.clickgui.render.RoundedUtils;
+import crewx.gui.menu.MainMenuLayout;
+import crewx.gui.menu.MenuAvatar;
+import crewx.gui.menu.MenuClock;
+import crewx.gui.menu.MenuIcons;
+import net.minecraft.client.audio.PositionedSoundRecord;
 import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiOptions;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSelectWorld;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.Session;
+
+import java.io.IOException;
+
+
+
+
 
 
 public final class CrewXMainMenu extends GuiScreen {
+
     public static final class MenuButton extends GuiButton {
         private final int crewxWidth;
         private final int crewxHeight;
@@ -24,52 +41,275 @@ public final class CrewXMainMenu extends GuiScreen {
         public int menuHeight() { return crewxHeight; }
     }
 
+    private static final int SINGLEPLAYER = 1;
+    private static final int MULTIPLAYER = 2;
+    private static final int ALTS = 3;
+    private static final int OPTIONS = 4;
+    private static final int QUIT = 5;
+    private static final int CIRCLE = 0xFF0E0F12;
+    private static final int CIRCLE_HOVER = 0xFF1C1E24;
+
+    private static final class RoundButton {
+        final int action;
+        final String label;
+        final String icon;
+        final boolean small;
+        final long delay;
+        float cx;
+        float cy;
+        float radius;
+        float hover;
+        float press;
+
+        RoundButton(int action, String label, String icon, boolean small, long delay) {
+            this.action = action;
+            this.label = label;
+            this.icon = icon;
+            this.small = small;
+            this.delay = delay;
+        }
+
+        boolean contains(float x, float y) {
+            float dx = x - this.cx;
+            float dy = y - this.cy;
+            float r = this.radius + 3.0F;
+            return dx * dx + dy * dy <= r * r;
+        }
+    }
+
+    private final RoundButton[] buttons = {
+            new RoundButton(SINGLEPLAYER, "Singleplayer", MenuIcons.SINGLEPLAYER, false, 260L),
+            new RoundButton(MULTIPLAYER, "Multiplayer", MenuIcons.MULTIPLAYER, false, 320L),
+            new RoundButton(ALTS, "Alts", MenuIcons.ALTS, false, 380L),
+            new RoundButton(OPTIONS, "Options", MenuIcons.OPTIONS, true, 440L),
+            new RoundButton(QUIT, "Quit", MenuIcons.QUIT, true, 480L),
+    };
+    private final long openedAt = System.currentTimeMillis();
+    private MainMenuLayout layout;
+    private long lastFrame;
+    private float profileHover;
+    private Account cachedAccount;
+    private String cachedAccountName;
+
     @Override
     public void initGui() {
-        buttonList.clear();
-        int wide = Math.min(300, Math.max(220, width / 5));
-        int narrow = (wide - 12) / 2;
-        int left = width / 2 - wide / 2;
-        int top = height / 2 - 48;
-        buttonList.add(new MenuButton(1, left, top, wide, 28, "Singleplayer"));
-        buttonList.add(new MenuButton(2, left, top + 36, wide, 28, "Multiplayer"));
-        buttonList.add(new MenuButton(0, left, top + 72, narrow, 28, "Options"));
-        buttonList.add(new MenuButton(1337, left + narrow + 12, top + 72, narrow, 28, "Alts"));
-        buttonList.add(new MenuButton(1338, width - 86, height - 31, 74, 20, "Quit"));
+        this.buttonList.clear();
+        if (AccountManager.accounts.isEmpty()) AccountManager.load();
+        this.cachedAccountName = null;
+        float widestLabel = 0.0F;
+        for (RoundButton button : this.buttons) {
+            if (!button.small) widestLabel = Math.max(widestLabel, ClientFont.getStringWidthFloat(button.label) * 0.92F);
+        }
+        this.layout = new MainMenuLayout(this.width, this.height, ClientFont.getHeight(), widestLabel + 14.0F);
+        int main = 0;
+        for (RoundButton button : this.buttons) {
+            if (button.small) {
+                int index = button.action == QUIT ? 0 : 1;
+                button.cx = this.layout.smallCenterX[index];
+                button.cy = this.layout.smallCenterY;
+                button.radius = this.layout.smallRadius;
+            } else {
+                button.cx = this.layout.buttonCenterX(main++, 3);
+                button.cy = this.layout.buttonCenterY;
+                button.radius = this.layout.buttonRadius;
+            }
+        }
     }
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        CrewXTheme.drawBackground(width, height);
-        CrewXTheme.drawMainTitle(width, height);
+        if (this.layout == null) initGui();
+        long now = System.currentTimeMillis();
+        float dt = this.lastFrame == 0L ? 0.016F : Math.min(0.1F, (now - this.lastFrame) / 1000.0F);
+        this.lastFrame = now;
+        long elapsed = now - this.openedAt;
+
+        CrewXTheme.drawBackground(this.width, this.height, false);
+        drawBranding();
 
 
-        for (GuiButton button : buttonList) {
-            CrewXTheme.drawButton(button, mouseX, mouseY);
+        float clockIn = appear(elapsed, 80L);
+        MenuClock.draw(MenuClock.currentText(), this.width / 2.0F, this.layout.clockTop - 10.0F * (1.0F - clockIn),
+                this.layout.clockCap, GuiRender.alpha(0xF2F3F4F6, clockIn));
+
+        drawProfile(mouseX, mouseY, dt, appear(elapsed, 180L));
+
+        for (RoundButton button : this.buttons) {
+            drawButton(button, mouseX, mouseY, dt, appear(elapsed, button.delay));
+        }
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+
+    private void drawBranding() {
+        GuiRender.text("discord.gg/crackcrew", 10.0, 10.0, 0x99C7CBD6);
+        String credits = "Made by Crowly, Forever & Shinra";
+        float scale = 0.85F;
+        float creditsRight = 10.0F + ClientFont.getStringWidthFloat(credits) * scale;
+        float labelsLeft = this.layout.buttonCenterX(0, 3)
+                - ClientFont.getStringWidthFloat(this.buttons[0].label) * 0.46F;
+        float y = this.height - 8.0F - ClientFont.getHeight() * scale;
+        if (creditsRight + 10.0F < labelsLeft || y + ClientFont.getHeight() < this.layout.labelY) {
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(10.0F, y, 0.0F);
+            GlStateManager.scale(scale, scale, 1.0F);
+            ClientFont.drawString(credits, 0.0F, 0.0F, 0x667A7F8C, false);
+            GlStateManager.popMatrix();
+        }
+    }
+
+    private void drawProfile(int mouseX, int mouseY, float dt, float in) {
+        if (in <= 0.0F) return;
+        String name = SessionManager.get().getUsername();
+        if (!name.equals(this.cachedAccountName)) {
+            this.cachedAccountName = name;
+            this.cachedAccount = MenuAvatar.findAccount(name);
+        }
+        Session session = SessionManager.get();
+        String token = session.getToken();
+        boolean online = token != null && !token.isEmpty() && !"0".equals(token) && !"-".equals(token);
+        String status = online ? "Online" : "Offline";
+
+        float size = this.layout.avatarSize;
+        float nameW = ClientFont.getStringWidthFloat(name);
+        float statusW = ClientFont.getStringWidthFloat(status) * 0.92F;
+        float gap = 7.0F;
+        float total = size + gap + nameW + 4.0F + statusW;
+        float x = this.width / 2.0F - total / 2.0F;
+        float y = this.layout.profileCenterY - size / 2.0F + 6.0F * (1.0F - in);
+
+        boolean hovered = mouseX >= x - 6 && mouseX <= x + total + 8 && mouseY >= y - 4 && mouseY <= y + size + 4;
+        this.profileHover = approach(this.profileHover, hovered ? 1.0F : 0.0F, dt, 10.0F);
+        if (this.profileHover > 0.01F) {
+
+            RoundedUtils.drawRoundedRect(x - 5.0F, y - 3.0F, total + 14.0F, size + 6.0F,
+                    GuiRender.alpha(0x66141519, in * this.profileHover), (size + 6.0F) / 2.0F);
+        }
+        RoundedUtils.drawRoundedRect(x - 1.0F, y - 1.0F, size + 2.0F, size + 2.0F,
+                GuiRender.alpha(0x40000000, in), (size + 2.0F) / 2.0F);
+        MenuAvatar.draw(name, this.cachedAccount, x, y, size, size / 2.0F, in);
+
+        float textY = y + (size - ClientFont.getHeight()) / 2.0F + 0.5F;
+        float tx = x + size + gap;
+        ClientFont.drawStringStyled(name, tx, textY, offset -> GuiRender.alpha(0xFFFFFFFF, in), 0.3F,
+                GuiRender.alpha(0x50000000, in), 0.6F);
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(tx + nameW + 4.0F, textY + ClientFont.getHeight() * 0.06F, 0.0F);
+        GlStateManager.scale(0.92F, 0.92F, 1.0F);
+        ClientFont.drawString(status, 0.0F, 0.0F, GuiRender.alpha(online ? 0xFF8C9099 : 0xFF6E727B, in * 0.85F), false);
+        GlStateManager.popMatrix();
+    }
+
+    private void drawButton(RoundButton button, int mouseX, int mouseY, float dt, float in) {
+        if (in <= 0.0F) return;
+        boolean hovered = button.contains(mouseX, mouseY);
+        button.hover = approach(button.hover, hovered ? 1.0F : 0.0F, dt, 12.0F);
+        button.press = approach(button.press, 0.0F, dt, 9.0F);
+        float scale = (0.85F + 0.15F * in) * (1.0F + 0.07F * button.hover - 0.08F * button.press);
+        float r = button.radius * scale;
+        float cy = button.cy + 8.0F * (1.0F - in);
+
+
+        RoundedUtils.drawRoundedRect(button.cx - r - 2.0F, cy - r - 1.0F, r * 2.0F + 4.0F, r * 2.0F + 4.0F,
+                GuiRender.alpha(0x38000000, in), r + 2.0F);
+        int fill = GuiRender.mix(CIRCLE, CIRCLE_HOVER, button.hover);
+        RoundedUtils.drawRoundedRect(button.cx - r, cy - r, r * 2.0F, r * 2.0F,
+                GuiRender.alpha(fill, (0.82F + 0.13F * button.hover) * in), r);
+        if (button.hover > 0.01F) {
+            RoundedUtils.drawRoundedRect(button.cx - r, cy - r, r * 2.0F, r * 2.0F,
+                    GuiRender.alpha(0x10FFFFFF, button.hover * in), r);
+        }
+        float iconSize = r * (button.small ? 1.05F : 1.0F);
+        MenuIcons.draw(button.icon, button.cx, cy, iconSize,
+                GuiRender.alpha(GuiRender.mix(0xFFD5D7DC, 0xFFFFFFFF, button.hover), in));
+
+        if (!button.small) {
+            float labelW = ClientFont.getStringWidthFloat(button.label) * 0.92F;
+            float ly = this.layout.labelY + 8.0F * (1.0F - in) - button.hover;
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(button.cx - labelW / 2.0F, ly, 0.0F);
+            GlStateManager.scale(0.92F, 0.92F, 1.0F);
+            ClientFont.drawString(button.label, 0.0F, 0.0F,
+                    GuiRender.alpha(GuiRender.mix(0xFFC9CBD1, 0xFFFFFFFF, button.hover), in * (0.85F + 0.15F * button.hover)), false);
+            GlStateManager.popMatrix();
+        } else if (button.hover > 0.02F) {
+
+            float labelW = ClientFont.getStringWidthFloat(button.label);
+            float tx = Math.min(this.width - labelW - 14.0F, button.cx - labelW / 2.0F);
+            float ty = cy + r + 6.0F + 3.0F * (1.0F - button.hover);
+            RoundedUtils.drawRoundedRect(tx - 5.0F, ty - 3.0F, labelW + 10.0F, ClientFont.getHeight() + 5.0F,
+                    GuiRender.alpha(0xE60E0F12, button.hover * in), 4.0F);
+            ClientFont.drawString(button.label, tx, ty, GuiRender.alpha(0xFFFFFFFF, button.hover * in), false);
         }
     }
 
     @Override
-    protected void actionPerformed(GuiButton button) throws IOException {
-        if (button == null || !button.enabled) return;
-        switch (button.id) {
-            case 1:
-                mc.displayGuiScreen(new GuiSelectWorld(this));
+    protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {
+        if (mouseButton != 0 || this.layout == null) return;
+        for (RoundButton button : this.buttons) {
+            if (button.contains(mouseX, mouseY)) {
+                button.press = 1.0F;
+                click();
+                perform(button.action);
+                return;
+            }
+        }
+        if (isOverProfile(mouseX, mouseY)) {
+            click();
+            perform(ALTS);
+        }
+    }
+
+    private boolean isOverProfile(int mouseX, int mouseY) {
+        float size = this.layout.avatarSize;
+        float half = Math.max(60.0F, ClientFont.getStringWidthFloat(SessionManager.get().getUsername()) / 2.0F + size);
+        return Math.abs(mouseX - this.width / 2.0F) <= half && Math.abs(mouseY - this.layout.profileCenterY) <= size / 2.0F + 4.0F;
+    }
+
+    private void perform(int action) {
+        switch (action) {
+            case SINGLEPLAYER:
+                this.mc.displayGuiScreen(new GuiSelectWorld(this));
                 break;
-            case 2:
-                mc.displayGuiScreen(new GuiMultiplayer(this));
+            case MULTIPLAYER:
+                this.mc.displayGuiScreen(new crewx.gui.servers.CrewXServerSelector(this));
                 break;
-            case 0:
-                mc.displayGuiScreen(new GuiOptions(this, mc.gameSettings));
+            case ALTS:
+                this.mc.displayGuiScreen(new GuiAccountManager(this));
                 break;
-            case 1337:
-                mc.displayGuiScreen(new GuiAccountManager(this));
+            case OPTIONS:
+                this.mc.displayGuiScreen(new GuiOptions(this, this.mc.gameSettings));
                 break;
-            case 1338:
-                mc.shutdown();
+            case QUIT:
+                this.mc.shutdown();
                 break;
             default:
                 break;
         }
+    }
+
+    private void click() {
+        this.mc.getSoundHandler().playSound(PositionedSoundRecord.create(new ResourceLocation("gui.button.press"), 1.0F));
+    }
+
+    @Override
+    protected void keyTyped(char typedChar, int keyCode) {
+
+    }
+
+    @Override
+    public boolean doesGuiPauseGame() {
+        return false;
+    }
+
+    private static float appear(long elapsed, long delay) {
+        float t = Math.max(0.0F, Math.min(1.0F, (elapsed - delay) / 520.0F));
+        float inv = 1.0F - t;
+        return 1.0F - inv * inv * inv;
+    }
+
+    private static float approach(float current, float target, float dt, float speed) {
+        float next = current + (target - current) * (1.0F - (float) Math.exp(-dt * speed));
+        return Math.abs(target - next) < 0.002F ? target : next;
     }
 }

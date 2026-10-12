@@ -32,10 +32,13 @@ public final class ClientFont {
     public static String trimStringToWidth(String text, int width) {
         if (text == null || text.isEmpty() || width <= 0) return "";
         if (hasFormatting(text)) return MC.fontRendererObj.trimStringToWidth(text, width);
+
+        float used = 0.0F;
         int end = 0;
-        for (int i = 1; i <= text.length(); i++) {
-            if (RENDERER.getStringWidth(text.substring(0, i)) > width) break;
-            end = i;
+        for (int i = 0; i < text.length(); i++) {
+            used += RENDERER.getStringWidthFloat(String.valueOf(text.charAt(i)));
+            if (Math.round(used) > width) break;
+            end = i + 1;
         }
         return text.substring(0, end);
     }
@@ -59,6 +62,13 @@ public final class ClientFont {
         RENDERER.drawString(text, x + 1.0F, y + 1.0F, shadow);
         RENDERER.drawString(text, x, y, color);
         return Math.round(x) + RENDERER.getStringWidth(text);
+    }
+
+
+    public static void drawStringStyled(String text, float x, float y, ClickGuiFontRenderer.GlyphColor color,
+                                        float boldOffset, int shadowColor, float shadowOffset) {
+        if (text == null || text.isEmpty()) return;
+        RENDERER.drawStringStyled(text, x, y, color, boldOffset, shadowColor, shadowOffset);
     }
 
     private static boolean hasFormatting(String text) {

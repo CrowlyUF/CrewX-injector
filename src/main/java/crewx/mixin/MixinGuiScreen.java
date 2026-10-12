@@ -24,7 +24,8 @@ public abstract class MixinGuiScreen {
 
     @Inject(method = "drawDefaultBackground", at = @At("HEAD"), cancellable = true)
     private void crewx$drawDefaultBackground(CallbackInfo callbackInfo) {
-        if (!(Minecraft.getMinecraft().currentScreen instanceof GuiMainMenu)) return;
+
+        if (Minecraft.getMinecraft().theWorld != null) return;
         CrewXTheme.drawScreenBackground(width, height);
         callbackInfo.cancel();
     }

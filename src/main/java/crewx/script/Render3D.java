@@ -95,6 +95,8 @@ public final class Render3D {
             if (attribPushed) {
                 GL11.glPopAttrib();
                 attribPushed = false;
+
+                crewx.util.GlStateSync.afterPopAttrib();
             }
             if (rootMatrixPushed) {
                 GlStateManager.popMatrix();

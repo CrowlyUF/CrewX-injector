@@ -19,4 +19,7 @@ public final class CrewXNative {
 
 
     public static native int mbl(Class<?> targetClass, String name, String descriptor);
+
+
+    public static native boolean urq();
 }

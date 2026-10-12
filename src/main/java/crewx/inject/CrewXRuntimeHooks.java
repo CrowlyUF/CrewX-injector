@@ -30,6 +30,7 @@ import crewx.management.RotationState;
 import crewx.module.Module;
 import crewx.module.modules.combat.KillAura;
 import crewx.module.modules.player.AntiDebuff;
+import crewx.module.modules.player.AutoTool;
 import crewx.module.modules.movement.KeepSprint;
 import crewx.module.modules.movement.NoSlow;
 import crewx.module.modules.render.Animations;
@@ -163,6 +164,20 @@ public final class CrewXRuntimeHooks {
     private static volatile Field buttonListField;
 
     private CrewXRuntimeHooks() {
+    }
+
+    static void resetAfterUnload() {
+        initialized = false;
+        initializationFailed = false;
+        tickCounter = 0;
+        firstTickSeen = false;
+        firstFrameSeen = false;
+        rshiftWasDown = false;
+        rshiftDispatchedThisTick = false;
+        ROTATION.clear();
+        java.util.Arrays.fill(mouseButtons, false);
+        java.util.Arrays.fill(keyboardButtons, false);
+        java.util.Arrays.fill(keyboardDispatchTick, 0L);
     }
 
     private static Field gameField(Class<?> type, String namedOwner, String name)
@@ -746,6 +761,27 @@ public final class CrewXRuntimeHooks {
 
     }
 
+    public static void onChatInputBar(int left, int top, int right, int bottom, int color) {
+        try {
+            float x = left;
+            float y = top - 1.0F;
+            float w = right - left;
+            float h = bottom - top + 1.0F;
+            for (int i = 2; i >= 1; --i) {
+                crewx.clickgui.render.RoundedUtils.drawRoundedRect(x - i, y - i + 1.0F,
+                        w + i * 2.0F, h + i * 2.0F, 0x14000000, 5.0F + i);
+            }
+            crewx.gui.BackdropBlur.drawRoundedPanel(x, y, w, h, 5.0F, 0xA60E0F12);
+            int scale = new net.minecraft.client.gui.ScaledResolution(Minecraft.getMinecraft()).getScaleFactor();
+            crewx.clickgui.render.RoundedUtils.drawRoundedOutlinedRect(x, y, w, h,
+                    0x2EFFFFFF, 5.0F * scale / 2.0F, 1.0F);
+            GlStateManager.enableBlend();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        } catch (Throwable error) {
+            net.minecraft.client.gui.Gui.drawRect(left, top, right, bottom, color);
+        }
+    }
+
     public static void onChatPanel(net.minecraft.client.gui.GuiNewChat chat, int updateCounter) {
         try {
             java.util.List<net.minecraft.client.gui.ChatLine> lines = chatLines(chat);
@@ -775,8 +811,18 @@ public final class CrewXRuntimeHooks {
                 float opacity = Minecraft.getMinecraft().gameSettings.chatOpacity * 0.9F + 0.1F;
                 alpha = Math.max(0, Math.min(220, (int) (174.0D * fade * fade * opacity)));
             }
-            crewx.gui.BackdropBlur.drawRoundedPanel(-2.0F, -panelHeight - 3.0F,
-                    panelWidth, panelHeight + 6.0F, 3.0F, alpha << 24 | 0x000C0D0F);
+            if (alpha <= 0) return;
+            float x = -1.5F;
+            float y = -panelHeight - 4.0F;
+            float w = panelWidth + 0.5F;
+            float h = panelHeight + 8.0F;
+            for (int i = 3; i >= 1; --i) {
+                crewx.clickgui.render.RoundedUtils.drawRoundedRect(x - i, y - i + 1.0F,
+                        w + i * 2.0F, h + i * 2.0F,
+                        Math.round(alpha * 0.10F) << 24, 5.0F + i);
+            }
+            crewx.gui.BackdropBlur.drawRoundedPanel(x, y, w, h, 5.0F,
+                    alpha << 24 | 0x000C0D0F);
         } catch (Throwable ignored) {
 
         }
@@ -792,7 +838,11 @@ public final class CrewXRuntimeHooks {
                 net.minecraft.client.gui.ChatLine line = lines.get(index);
                 if (line == null || text == null
                         || !text.equals(line.getChatComponent().getFormattedText())) continue;
-                y += crewx.gui.ChatMessageAnimator.getRiseOffset(line, updateCounter);
+                float progress = crewx.gui.ChatMessageAnimator.getProgress(line, updateCounter);
+                if (progress < 1.0F) {
+                    y += crewx.gui.ChatMessageAnimator.getRiseOffset(line, updateCounter);
+                    color = crewx.gui.ChatMessageAnimator.fadeColor(color, progress);
+                }
                 break;
             }
         } catch (Throwable ignored) {
@@ -1556,6 +1606,14 @@ public final class CrewXRuntimeHooks {
         } catch (Throwable ignored) {
 
         }
+    }
+
+    public static void beginSilentMining() {
+        try { AutoTool.beginSilentMining(); } catch (Throwable ignored) { }
+    }
+
+    public static void endSilentMining() {
+        try { AutoTool.endSilentMining(); } catch (Throwable ignored) { }
     }
 
     public static void onAttack(Object target) {

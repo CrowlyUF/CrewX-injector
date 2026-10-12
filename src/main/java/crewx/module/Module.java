@@ -4,6 +4,7 @@ import crewx.CrewX;
 import crewx.config.Config;
 import crewx.module.modules.render.HUD;
 import crewx.module.modules.render.GuiModule;
+import crewx.module.modules.render.MediaPlayer;
 import crewx.module.modules.render.Notifications;
 import crewx.module.modules.movement.Sprint;
 import crewx.util.KeyBindUtil;
@@ -24,7 +25,8 @@ public abstract class Module {
 
     public Module(String name, boolean enabled, boolean hidden) {
         this.name = name;
-        this.defaultEnabled = enabled && (this instanceof Sprint || this instanceof HUD || this instanceof Notifications);
+        this.defaultEnabled = enabled && (this instanceof Sprint || this instanceof HUD || this instanceof Notifications
+                || this instanceof MediaPlayer);
         this.enabled = this.defaultEnabled;
         this.key = this.defaultKey = 0;
         this.hidden = this.defaultHidden = hidden;
@@ -65,8 +67,7 @@ public abstract class Module {
             }
             try {
                 if (!(this instanceof Notifications) && !(this instanceof GuiModule)) {
-                    Notifications.push(enabled ? "Enabled" : "Disabled",
-                            this.name + (enabled ? " Toggled" : " Toggled Off"), enabled);
+                    Notifications.push(enabled ? "Enabled" : "Disabled", this.name, enabled);
                 }
             } catch (Throwable ignored) {}
             Config.markDirty();

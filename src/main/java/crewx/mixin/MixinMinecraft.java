@@ -10,6 +10,7 @@ import crewx.gui.CrewXTransition;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.gui.GuiMainMenu;
+import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.multiplayer.PlayerControllerMP;
 import net.minecraft.client.multiplayer.WorldClient;
@@ -23,6 +24,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -44,6 +46,15 @@ public abstract class MixinMinecraft {
     public EntityPlayerSP thePlayer;
     @Shadow
     public GuiScreen currentScreen;
+
+
+    @ModifyVariable(method = "displayGuiScreen", at = @At("HEAD"), argsOnly = true)
+    private GuiScreen crewx$serverSelector(GuiScreen screen) {
+        if (screen != null && screen.getClass() == GuiMultiplayer.class) {
+            return new crewx.gui.servers.CrewXServerSelector(((IAccessorGuiMultiplayer) screen).getParentScreen());
+        }
+        return screen;
+    }
 
     @Inject(method = "displayGuiScreen", at = @At("HEAD"))
     private void crewx$displayGuiScreen(GuiScreen screen, CallbackInfo callbackInfo) {

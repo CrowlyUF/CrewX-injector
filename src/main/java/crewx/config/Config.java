@@ -25,6 +25,12 @@ public class Config {
     private static boolean autoSaveReady;
     private static long dirtyAt;
 
+
+    public static void suspendAutoSave() {
+        autoSaveReady = false;
+        dirtyAt = 0L;
+    }
+
     public static File directory() {
         return new File(mc.mcDataDir, "config/CrewX");
     }
@@ -104,6 +110,11 @@ public class Config {
             JsonObject jsonObject = parsed.getAsJsonObject();
             for (Module module : CrewX.moduleManager.modules.values()) {
                 JsonElement moduleObj = jsonObject.get(module.getName());
+                boolean legacy = false;
+                if (moduleObj == null && module instanceof crewx.module.modules.render.MediaPlayer) {
+                    moduleObj = jsonObject.get("Spotify");
+                    legacy = moduleObj != null;
+                }
                 if (moduleObj != null && moduleObj.isJsonObject()) {
                     JsonObject object = moduleObj.getAsJsonObject();
 
@@ -120,10 +131,7 @@ public class Config {
                         }
                     }
 
-
-
-
-                    if (!(module instanceof GuiModule) && object.has("toggled") && !resetTogglesToDefaults) {
+                    if (!(module instanceof GuiModule) && object.has("toggled") && !resetTogglesToDefaults && !legacy) {
                         JsonElement toggled = object.get("toggled");
                         if (toggled != null && toggled.isJsonPrimitive()
                                 && toggled.getAsJsonPrimitive().isBoolean()) {
@@ -154,7 +162,7 @@ public class Config {
                         }
                     }
 
-                    if (object.has("hidden")) {
+                    if (object.has("hidden") && !legacy) {
                         JsonElement hidden = object.get("hidden");
                         if (hidden != null && hidden.isJsonPrimitive()
                                 && hidden.getAsJsonPrimitive().isBoolean()) {
@@ -192,7 +200,7 @@ public class Config {
         save(true);
     }
 
-    private void save(boolean announce) {
+    public void save(boolean announce) {
         try {
             if (!file.getParentFile().exists()) {
                 file.getParentFile().mkdirs();

@@ -63,12 +63,12 @@ public class ConfigCommand extends Command {
                     return;
                 case "list":
                     try {
-                        File[] configs = Config.directory().listFiles(FILE_FILTER);
+                        File[] configs = new File("./config/CrewX/").listFiles(FILE_FILTER);
                         if (configs == null) {
                             throw new Exception();
                         }
                         if (configs.length == 0) {
-                            ChatUtil.sendFormatted(String.format("%sNo configs found (&o%s&r)&r", CrewX.clientName, Config.directory()));
+                            ChatUtil.sendFormatted(String.format("%sNo configs found (&o%s&r)&r", CrewX.clientName, "./config/CrewX/"));
                         }
                         Arrays.sort(configs, LastModifiedFileComparator.LASTMODIFIED_REVERSE);
                         ChatUtil.sendFormatted(String.format("%sConfigs:&r", CrewX.clientName));
@@ -85,7 +85,7 @@ public class ConfigCommand extends Command {
                             );
                         }
                     } catch (Exception e) {
-                        ChatUtil.sendFormatted(String.format("%sFailed to read (&o%s&r)&r", CrewX.clientName, Config.directory()));
+                        ChatUtil.sendFormatted(String.format("%sFailed to read (&o%s&r)&r", CrewX.clientName, "./config/CrewX/"));
                     }
                     return;
                 case "f":
@@ -93,9 +93,9 @@ public class ConfigCommand extends Command {
                 case "dir":
                 case "directory":
                     try {
-                        Desktop.getDesktop().open(Config.directory());
+                        Desktop.getDesktop().open(new File("./config/CrewX/"));
                     } catch (Exception e) {
-                        ChatUtil.sendFormatted(String.format("%sFailed to open (&o%s&r)&r", CrewX.clientName, Config.directory()));
+                        ChatUtil.sendFormatted(String.format("%sFailed to open (&o%s&r)&r", CrewX.clientName, "./config/CrewX/"));
                     }
                     return;
                 default:

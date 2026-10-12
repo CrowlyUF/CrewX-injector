@@ -1,4 +1,4 @@
-#ifndef WIN32_LEAN_AND_MEAN
+﻿#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
@@ -219,10 +219,12 @@ typedef struct selector_state {
     size_t count;
     DWORD selected_process_id;
     size_t scroll_offset;
+    int unload_selected;
 } selector_state;
 
 static selector_state g_selector;
 static int g_hovered_card = -1;
+static int remote_has_crewx(DWORD process_id);
 
 static void fill_round_rect(HDC dc, int left, int top, int right, int bottom,
         int radius, COLORREF color) {
@@ -430,6 +432,32 @@ static LRESULT CALLBACK selector_window_proc(HWND window, UINT message,
             }
             ReleaseCapture();
             SendMessageW(window, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            return 0;
+        }
+        case WM_RBUTTONDOWN: {
+            int x = (short)LOWORD(lparam);
+            int y = (short)HIWORD(lparam);
+            if (x >= CARD_LEFT && x < CARD_LEFT + CARD_WIDTH && y >= CARD_TOP) {
+                size_t row = (size_t)((y - CARD_TOP) / (CARD_HEIGHT + CARD_GAP));
+                size_t index = g_selector.scroll_offset + row;
+                if (row < VISIBLE_CARDS && index < g_selector.count
+                        && (y - CARD_TOP) % (CARD_HEIGHT + CARD_GAP) < CARD_HEIGHT) {
+                    DWORD pid = g_selector.candidates[index].process_id;
+                    if (remote_has_crewx(pid)) {
+                        HMENU menu = CreatePopupMenu();
+                        POINT point = {x, y};
+                        ClientToScreen(window, &point);
+                        AppendMenuW(menu, MF_STRING, 1, L"Unload CrewX");
+                        if (TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                point.x, point.y, 0, window, NULL) == 1) {
+                            g_selector.selected_process_id = pid;
+                            g_selector.unload_selected = 1;
+                            DestroyWindow(window);
+                        }
+                        DestroyMenu(menu);
+                    }
+                }
+            }
             return 0;
         }
         case WM_PAINT:
@@ -700,10 +728,70 @@ cleanup:
     return result;
 }
 
+static int unload_library(DWORD process_id) {
+    HANDLE snapshot = NULL;
+    HANDLE process = NULL;
+    HANDLE thread = NULL;
+    MODULEENTRY32W entry;
+    HMODULE local_image = NULL;
+    uintptr_t remote_base = 0;
+    uintptr_t offset;
+    FARPROC unload_export;
+    DWORD exit_code = 0;
+    int result = 0;
+    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+            process_id);
+    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    memset(&entry, 0, sizeof(entry));
+    entry.dwSize = sizeof(entry);
+    if (Module32FirstW(snapshot, &entry)) {
+        do {
+            if (_wcsnicmp(entry.szModule, L"CrewXNative", 11) == 0) {
+                remote_base = (uintptr_t)entry.modBaseAddr;
+                break;
+            }
+        } while (Module32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    if (remote_base == 0) return 2;
+    local_image = LoadLibraryExW(entry.szExePath, NULL, DONT_RESOLVE_DLL_REFERENCES);
+    if (local_image == NULL) return 0;
+    unload_export = GetProcAddress(local_image, "CrewXUnload");
+    if (unload_export == NULL) {
+        result = 3;
+        goto cleanup;
+    }
+    offset = (uintptr_t)unload_export - (uintptr_t)local_image;
+    process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION
+            | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE,
+            FALSE, process_id);
+    if (process == NULL || !require_x64_target(process)) goto cleanup;
+    thread = CreateRemoteThread(process, NULL, 0,
+            (LPTHREAD_START_ROUTINE)(remote_base + offset), NULL, 0, NULL);
+    if (thread == NULL) goto cleanup;
+    if (WaitForSingleObject(thread, 45000) != WAIT_OBJECT_0
+            || !GetExitCodeThread(thread, &exit_code)) {
+        result = 4;
+        goto cleanup;
+    }
+    if (exit_code == 0 && !remote_has_crewx(process_id)) {
+        result = 1;
+    } else {
+        log_inject(L"CrewXUnload returned %lu; DLL still present=%d",
+                (unsigned long)exit_code, remote_has_crewx(process_id));
+    }
+cleanup:
+    if (thread != NULL) CloseHandle(thread);
+    if (process != NULL) CloseHandle(process);
+    if (local_image != NULL) FreeLibrary(local_image);
+    return result;
+}
+
 static void usage(const wchar_t *program) {
     fwprintf(stderr,
-            L"Usage: %ls [minecraft-pid]\n"
+            L"Usage: %ls [minecraft-pid] | --unload <minecraft-pid>\n"
             L"Without a PID, an automatically refreshing Java window selector is shown.\n"
+            L"Right-click an injected game card to unload CrewX.\n"
             L"The injector and payload are bundled in this EXE.\n", program);
 }
 
@@ -711,24 +799,52 @@ int wmain(int argc, wchar_t **argv) {
     wchar_t dll_path[MAX_PATH];
     wchar_t *end = NULL;
     unsigned long process_id = 0;
+    int unload_requested = 0;
     open_inject_log();
     log_inject(L"CrewX injector started");
-    if (argc < 1 || argc > 2) {
+    if (argc < 1 || argc > 3) {
         usage(argv[0]);
         return 2;
     }
-    if (argc == 2) {
+    if (argc == 3 && _wcsicmp(argv[1], L"--unload") == 0) {
+        unload_requested = 1;
+        process_id = wcstoul(argv[2], &end, 10);
+    } else if (argc == 2) {
         process_id = wcstoul(argv[1], &end, 10);
-        if (process_id == 0 || end == argv[1] || *end != L'\0') {
-            fwprintf(stderr, L"Invalid process id: %ls\n", argv[1]);
+    } else if (argc != 1) {
+        usage(argv[0]);
+        return 2;
+    }
+    if (argc > 1) {
+        const wchar_t *input = argc == 3 ? argv[2] : argv[1];
+        if (process_id == 0 || end == input || *end != L'\0') {
+            fwprintf(stderr, L"Invalid process id: %ls\n", input);
             return 2;
         }
     }
-    if (argc != 2) {
+    if (argc == 1) {
         process_id = (unsigned long)select_process(L"DLL embutida no EXE");
+        unload_requested = g_selector.unload_selected;
         if (process_id == 0) {
             return 1;
         }
+    }
+    if (unload_requested) {
+        int unload_result = unload_library((DWORD)process_id);
+        if (unload_result == 1) {
+            MessageBoxW(NULL, L"CrewX foi removido do Minecraft.", L"CrewX", MB_OK);
+            return 0;
+        }
+        if (unload_result == 2) {
+            MessageBoxW(NULL, L"CrewX nao esta injetado neste processo.", L"CrewX", MB_ICONINFORMATION | MB_OK);
+        } else if (unload_result == 3) {
+            MessageBoxW(NULL, L"Esta DLL e de uma versao anterior, sem unload seguro. Reinicie o jogo e use o loader atual.",
+                    L"CrewX", MB_ICONWARNING | MB_OK);
+        } else {
+            MessageBoxW(NULL, L"Nao foi possivel concluir o unload. A DLL foi mantida para evitar crash. Consulte crewx-native.log.",
+                    L"CrewX", MB_ICONERROR | MB_OK);
+        }
+        return 3;
     }
     if (!stage_embedded_dll((DWORD)process_id, dll_path, MAX_PATH)) {
         fwprintf(stderr, L"Could not extract the bundled injection component.\n");

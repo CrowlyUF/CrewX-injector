@@ -31,6 +31,9 @@
 static HMODULE g_module = NULL;
 static JavaVM *g_vm = NULL;
 static jvmtiEnv *g_jvmti = NULL;
+static jobject g_payload_loader = NULL;
+static volatile LONG g_unload_requested = 0;
+__declspec(dllexport) DWORD WINAPI CrewXUnload(LPVOID unused);
 
 static SRWLOCK g_capture_lock = SRWLOCK_INIT;
 static jclass g_capture_class = NULL;
@@ -781,11 +784,29 @@ static jbyteArray JNICALL native_gcb(JNIEnv *env, jclass bridge, jclass target) 
     return result;
 }
 
+static jboolean JNICALL native_urq(JNIEnv *env, jclass ignored) {
+    HANDLE thread;
+    (void)env;
+    (void)ignored;
+    if (g_module == NULL || g_payload_loader == NULL || g_jvmti == NULL
+            || InterlockedCompareExchange(&g_unload_requested, 1, 0) != 0) return JNI_FALSE;
+    thread = CreateThread(NULL, 0, CrewXUnload, NULL, 0, NULL);
+    if (thread == NULL) {
+        InterlockedExchange(&g_unload_requested, 0);
+        crewx_log(L"unload request from ClickGUI failed to create worker");
+        return JNI_FALSE;
+    }
+    CloseHandle(thread);
+    crewx_log(L"unload requested from ClickGUI");
+    return JNI_TRUE;
+}
+
 static jint register_native_bridge(JNIEnv *env, jobject loader) {
     JNINativeMethod methods[] = {
         {"gcb", "(Ljava/lang/Class;)[B", (void *)native_gcb},
         {"scb", "(Ljava/lang/Class;[B)I", (void *)native_scb},
         {"mbl", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;)I", (void *)native_mbl},
+        {"urq", "()Z", (void *)native_urq},
     };
     jclass loader_class = (*env)->FindClass(env, "java/lang/ClassLoader");
     jmethodID load_class = loader_class == NULL ? NULL : (*env)->GetMethodID(
@@ -903,6 +924,8 @@ static DWORD WINAPI bootstrap_thread(LPVOID parameter) {
     if (!call_bootstrap_start(env, loader)) {
         goto cleanup;
     }
+    g_payload_loader = (*env)->NewGlobalRef(env, loader);
+    if (g_payload_loader == NULL) goto cleanup;
     crewx_log(L"CrewXBootstrap.start completed; injection is active");
     exit_code = 0;
 
@@ -914,6 +937,89 @@ cleanup:
         crewx_log(L"bootstrap did not complete; code=%lu", exit_code);
     }
     return exit_code;
+}
+
+
+
+
+__declspec(dllexport) DWORD WINAPI CrewXUnload(LPVOID unused) {
+    JNIEnv *env = NULL;
+    jclass class_loader_class = NULL;
+    jclass bootstrap_class = NULL;
+    jclass bridge_class = NULL;
+    jmethodID load_class = NULL;
+    jmethodID unload_method = NULL;
+    jstring bootstrap_name = NULL;
+    jstring bridge_name = NULL;
+    jboolean restored = JNI_FALSE;
+    DWORD error_code = 1;
+    jint i;
+    (void)unused;
+    if (g_vm == NULL || g_jvmti == NULL || g_payload_loader == NULL) {
+        crewx_log(L"unload refused: bootstrap is not complete");
+        return 2;
+    }
+    if ((*g_vm)->AttachCurrentThreadAsDaemon(g_vm, (void **)&env, NULL) != JNI_OK
+            || env == NULL) return 3;
+    class_loader_class = (*env)->FindClass(env, "java/lang/ClassLoader");
+    if (class_loader_class == NULL) goto fail;
+    load_class = (*env)->GetMethodID(env, class_loader_class, "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;");
+    if (load_class == NULL) goto fail;
+    bootstrap_name = (*env)->NewStringUTF(env, "crewx.inject.CrewXBootstrap");
+    bridge_name = (*env)->NewStringUTF(env, "crewx.inject.CrewXNative");
+    if (bootstrap_name == NULL || bridge_name == NULL) goto fail;
+    bootstrap_class = (jclass)(*env)->CallObjectMethod(env, g_payload_loader,
+            load_class, bootstrap_name);
+    if ((*env)->ExceptionCheck(env) || bootstrap_class == NULL) goto fail;
+    unload_method = (*env)->GetStaticMethodID(env, bootstrap_class, "unload", "()Z");
+    if (unload_method == NULL) goto fail;
+    restored = (*env)->CallStaticBooleanMethod(env, bootstrap_class, unload_method);
+    if ((*env)->ExceptionCheck(env) || !restored) {
+        crewx_log_pending_exception(env, L"CrewXBootstrap.unload");
+        crewx_log(L"unload refused: Java cleanup or hook restoration failed");
+        error_code = 4;
+        goto fail;
+    }
+    bridge_class = (jclass)(*env)->CallObjectMethod(env, g_payload_loader,
+            load_class, bridge_name);
+    if ((*env)->ExceptionCheck(env) || bridge_class == NULL
+            || (*env)->UnregisterNatives(env, bridge_class) != JNI_OK) {
+        crewx_log_pending_exception(env, L"UnregisterNatives CrewXNative");
+        error_code = 5;
+        goto fail;
+    }
+    if ((*g_jvmti)->SetEventNotificationMode(g_jvmti, JVMTI_DISABLE,
+            JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, NULL) != JVMTI_ERROR_NONE
+            || (*g_jvmti)->DisposeEnvironment(g_jvmti) != JVMTI_ERROR_NONE) {
+        crewx_log(L"unload refused: JVMTI environment could not be disposed");
+        error_code = 6;
+        goto fail;
+    }
+    g_jvmti = NULL;
+    AcquireSRWLockExclusive(&g_patch_lock);
+    for (i = 0; i < g_patch_count; ++i) {
+        if (g_patches[i].klass != NULL) (*env)->DeleteGlobalRef(env, g_patches[i].klass);
+        if (g_patches[i].bytes != NULL) HeapFree(GetProcessHeap(), 0, g_patches[i].bytes);
+        memset(&g_patches[i], 0, sizeof(g_patches[i]));
+    }
+    g_patch_count = 0;
+    ReleaseSRWLockExclusive(&g_patch_lock);
+    (*env)->DeleteGlobalRef(env, g_payload_loader);
+    g_payload_loader = NULL;
+    crewx_log(L"unload complete: CrewX DLL leaving process");
+    (*g_vm)->DetachCurrentThread(g_vm);
+    FreeLibraryAndExitThread(g_module, 0);
+fail:
+    InterlockedExchange(&g_unload_requested, 0);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    if (class_loader_class != NULL) (*env)->DeleteLocalRef(env, class_loader_class);
+    if (bootstrap_class != NULL) (*env)->DeleteLocalRef(env, bootstrap_class);
+    if (bridge_class != NULL) (*env)->DeleteLocalRef(env, bridge_class);
+    if (bootstrap_name != NULL) (*env)->DeleteLocalRef(env, bootstrap_name);
+    if (bridge_name != NULL) (*env)->DeleteLocalRef(env, bridge_name);
+    (*g_vm)->DetachCurrentThread(g_vm);
+    return error_code;
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {

@@ -158,6 +158,7 @@ public class ESP extends Module {
             this.framebuffer.framebufferClear();
             mc.getFramebuffer().bindFramebuffer(false);
             GlStateManager.popAttrib();
+            crewx.util.GlStateSync.afterPopAttrib();
             GlStateManager.popMatrix();
         }
 

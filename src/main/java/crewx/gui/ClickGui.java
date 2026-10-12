@@ -20,6 +20,7 @@ import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 
 import java.awt.Color;
 import java.io.File;
@@ -45,6 +46,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ClickGui extends GuiScreen {
     private static volatile long drawCount;
@@ -79,8 +81,8 @@ public class ClickGui extends GuiScreen {
     private static final Color MUTED = new Color(132, 132, 132);
     private static final Color TRACK = new Color(42, 42, 42);
     private static final float WINDOW_RADIUS = 11.0F;
-    private static final float OPEN_SPEED = 7.0F;
-    private static final float CLOSE_SPEED = 10.0F;
+    private static final float OPEN_SPEED = 4.2F;
+    private static final float CLOSE_SPEED = 6.6F;
     private static final String CREWX_LOGO = "/assets/crewx/icons/crewx_logo.png";
     private static final String COMBAT_ICON = "/assets/crewx/icons/gui/combat.png";
     private static final String MOVEMENT_ICON = "/assets/crewx/icons/gui/movement.png";
@@ -91,6 +93,10 @@ public class ClickGui extends GuiScreen {
     private static final String SEARCH_ICON = "/assets/crewx/icons/gui/search.png";
     private static final String CLEAR_ICON = "/assets/crewx/icons/gui/clear.png";
     private static final Map<String, ResourceLocation> GUI_TEXTURES = new HashMap<String, ResourceLocation>();
+    private static final Map<String, DynamicTexture> GUI_TEXTURE_OBJECTS = new HashMap<String, DynamicTexture>();
+
+    private static final Map<String, int[]> GUI_TEXTURE_SIZES = new HashMap<String, int[]>();
+    private static long lastTextureCheck;
     private static final ClickGuiFontRenderer FONT = ClientFont.getRenderer();
 
     private static Field modesField;
@@ -109,6 +115,7 @@ public class ClickGui extends GuiScreen {
     private String selectedConfigName = "";
     private String configImportStatus = "";
     private long configImportStatusUntil;
+    private long unloadConfirmUntil;
     private Module pendingModuleClick;
     private boolean pendingModuleSettingsHit;
     private boolean pendingModuleToggleHit;
@@ -174,6 +181,8 @@ public class ClickGui extends GuiScreen {
     @Override
     public void initGui() {
         this.closing = false;
+        this.animation = 0.0F;
+        this.animationStep();
         BlurController.setClickGuiOpen(true);
         this.lastFrame = 0L;
         this.computeLayout();
@@ -191,13 +200,13 @@ public class ClickGui extends GuiScreen {
         ++drawCount;
         if (!this.firstFrameLogged) {
             this.firstFrameLogged = true;
-            crewx.inject.CrewXBootstrap.log("ClickGui first drawScreen: "
-                    + this.width + "x" + this.height + " mouse=" + mouseX + "," + mouseY);
+            crewx.inject.CrewXBootstrap.log("ClickGUI first frame");
         }
         long now = System.nanoTime();
         float dt = this.lastFrame == 0L ? 0.016F : (now - this.lastFrame) / 1.0e9F;
         this.lastFrame = now;
         BlurController.ensureBlur();
+        verifyGuiTextures();
         this.deltaTime = Math.max(0.0F, Math.min(0.1F, dt));
         this.animationStep();
         if (this.closing && this.animation <= 0.0F) {
@@ -226,11 +235,12 @@ public class ClickGui extends GuiScreen {
 
         this.updateScroll();
         this.updateAnimations();
-        this.alphaMultiplier = this.closing ? this.animation * this.animation : this.animation;
+        float fadeProgress = easeOutCubic(this.animation);
+        this.alphaMultiplier = this.closing ? this.animation * this.animation : Math.min(1.0F, fadeProgress * 1.15F);
         this.centerX = this.virtualWidth / 2.0F;
         this.centerY = this.virtualHeight / 2.0F;
         this.scissorStack.clear();
-        this.drawGradientRect(0, 0, this.width, this.height, this.fade(0x1E000000), this.fade(0x1E000000));
+        this.drawGradientRect(0, 0, this.width, this.height, this.fade(0x26000000), this.fade(0x4A000000));
 
         GlStateManager.pushMatrix();
         GlStateManager.scale(this.uiScale, this.uiScale, 1.0F);
@@ -245,15 +255,26 @@ public class ClickGui extends GuiScreen {
     private float animation;
     private boolean firstFrameLogged;
 
+    private float tabLineX = -1.0F;
+    private float tabLineWidth;
+    private float categorySelectionY = -1.0F;
+    private final float[] categoryHover = new float[CATEGORIES.length];
+
     private void animationStep() {
         this.animation += (this.closing ? -CLOSE_SPEED : OPEN_SPEED) * this.deltaTime;
         this.animation = clamp01(this.animation);
-        this.renderScale = 0.985F + 0.015F * this.animation;
-        this.renderOffsetY = (1.0F - this.animation) * 3.0F;
+        if (this.closing) {
+            float p = 1.0F - this.animation;
+            float in = p * p * p;
+            this.renderScale = 1.0F - 0.06F * in;
+            this.renderOffsetY = 5.0F * in;
+        } else {
+            this.renderScale = 0.9F + 0.1F * easeOutBack(this.animation);
+            this.renderOffsetY = (1.0F - easeOutCubic(this.animation)) * 8.0F;
+        }
     }
 
     private void computeLayout() {
-
         this.uiScale = Math.min(1.0F, Math.min(this.width / 800.0F, this.height / 450.0F));
         this.virtualWidth = this.width / this.uiScale;
         this.virtualHeight = this.height / this.uiScale;
@@ -324,23 +345,34 @@ public class ClickGui extends GuiScreen {
     }
 
     private void renderWindow(float mouseX, float mouseY) {
+
+        for (int i = 4; i >= 1; i--) {
+            float spread = i * 2.5F;
+            this.round(this.windowX - spread, this.windowY - spread + 3.0F, this.windowWidth + spread * 2.0F,
+                    this.windowHeight + spread * 2.0F, (0x0C + (4 - i) * 0x06) << 24, WINDOW_RADIUS + spread);
+        }
+
         this.round(this.windowX, this.windowY, this.windowWidth, this.windowHeight,
-                new Color(5, 5, 5, GuiModule.getBackgroundAlpha()).getRGB(), WINDOW_RADIUS);
+                new Color(38, 38, 41, GuiModule.getBackgroundAlpha()).getRGB(), WINDOW_RADIUS);
         this.round(this.windowX + 1.0F, this.windowY + 1.0F, this.windowWidth - 2.0F, this.windowHeight - 2.0F,
                 new Color(14, 14, 14, 255).getRGB(), WINDOW_RADIUS - 1.0F);
         this.round(this.windowX + 1.0F, this.windowY + 1.0F, this.windowWidth - 2.0F, HEADER_HEIGHT,
-                new Color(17, 17, 17, 255).getRGB(), WINDOW_RADIUS - 1.0F);
+                new Color(17, 17, 18, 255).getRGB(), WINDOW_RADIUS - 1.0F);
+
+        this.round(this.windowX + WINDOW_RADIUS, this.windowY + 1.0F, Math.max(0.0F, this.windowWidth - WINDOW_RADIUS * 2.0F), 1.0F,
+                0x0FFFFFFF, 0.0F);
         if (this.activeTab == ViewTab.MODULES) {
             this.round(this.windowX + 1.0F, this.bodyY, this.sidebarWidth, this.bodyHeight,
                     new Color(13, 13, 13, 255).getRGB(), 0.0F);
             this.round(this.windowX + this.sidebarWidth, this.bodyY, this.modulePaneWidth, this.bodyHeight,
                     new Color(8, 8, 8, 255).getRGB(), 0.0F);
             this.round(this.windowX + this.sidebarWidth, this.bodyY + 8.0F, 1.0F,
-                    Math.max(0.0F, this.bodyHeight - 16.0F), new Color(30, 30, 30, 255).getRGB(), 0.0F);
+                    Math.max(0.0F, this.bodyHeight - 16.0F), new Color(28, 28, 30, 255).getRGB(), 0.0F);
         } else {
             this.round(this.windowX + 1.0F, this.bodyY, this.windowWidth - 2.0F, this.bodyHeight,
                     new Color(8, 8, 8, 255).getRGB(), 0.0F);
         }
+        this.round(this.windowX + 1.0F, this.bodyY, this.windowWidth - 2.0F, 1.0F, new Color(26, 26, 28, 255).getRGB(), 0.0F);
         this.renderHeader();
         if (this.activeTab == ViewTab.CONFIGS) {
             this.renderConfigsPane(mouseX, mouseY);
@@ -363,6 +395,57 @@ public class ClickGui extends GuiScreen {
         String configsLabel = this.headerLabel(ViewTab.CONFIGS);
         this.drawHeaderTab(modulesLabel, this.modulesTabX(), this.activeTab == ViewTab.MODULES);
         this.drawHeaderTab(configsLabel, this.configsTabX(), this.activeTab == ViewTab.CONFIGS);
+
+        float targetX = (this.activeTab == ViewTab.MODULES ? this.modulesTabX() : this.configsTabX()) - this.windowX;
+        float targetWidth = FONT.getStringWidth(this.activeTab == ViewTab.MODULES ? modulesLabel : configsLabel);
+        if (this.tabLineX < 0.0F) {
+            this.tabLineX = targetX;
+            this.tabLineWidth = targetWidth;
+        }
+        this.tabLineX = approach(this.tabLineX, targetX, this.deltaTime, 16.0F);
+        this.tabLineWidth = approach(this.tabLineWidth, targetWidth, this.deltaTime, 16.0F);
+        this.round(this.windowX + this.tabLineX, this.windowY + 30.0F, this.tabLineWidth, 2.0F, accentColor().getRGB(), 1.0F);
+        if (crewx.inject.CrewXBootstrap.injectionActive) {
+            boolean confirming = this.destroyConfirmationPending();
+            String mainLabel = confirming ? "Cancel" : "Destroy";
+            float mainX = this.destroyButtonX(mainLabel);
+            this.drawDestroyButton(mainLabel, mainX);
+            if (confirming) {
+                float confirmX = mainX - this.destroyButtonWidth("Confirm Destroy") - 12.0F;
+                this.drawDestroyButton("Confirm Destroy", confirmX);
+            }
+        }
+    }
+
+    private boolean destroyConfirmationPending() {
+        return System.currentTimeMillis() < this.unloadConfirmUntil;
+    }
+
+    private float destroyButtonWidth(String label) {
+        return FONT.getStringWidth(label) + 20.0F;
+    }
+
+    private float destroyButtonX(String label) {
+        return this.windowX + this.windowWidth - this.destroyButtonWidth(label) - 12.0F;
+    }
+
+    private boolean destroyButtonHit(String label, float x, float mx, float my) {
+        return mx >= x && mx <= x + this.destroyButtonWidth(label)
+                && my >= this.windowY + 10.0F && my <= this.windowY + 31.0F;
+    }
+
+    private void drawDestroyButton(String label, float x) {
+        float width = this.destroyButtonWidth(label);
+        float y = this.windowY + 10.0F;
+        boolean hover = this.destroyButtonHit(label, x, this.lastMouseX, this.lastMouseY);
+        int accent = accentColor().getRGB();
+        this.round(x, y + 3.0F, width, 20.0F, 0x99000000, 5.0F);
+        this.round(x, y, width, 21.0F,
+                lerpColor(new Color(38, 38, 38).getRGB(), accent, 0.30F), 5.0F);
+        this.round(x + 1.0F, y + 1.0F, width - 2.0F, 18.0F,
+                lerpColor(PANEL_ALT.getRGB(), accent, hover ? 0.20F : 0.12F), 4.0F);
+        this.round(x + 4.0F, y + 2.0F, width - 8.0F, 1.0F, 0x26FFFFFF, 0.0F);
+        this.text(label, x + 10.0F, y + 5.0F, Color.WHITE.getRGB());
     }
 
     private float modulesTabX() {
@@ -391,10 +474,9 @@ public class ClickGui extends GuiScreen {
     }
 
     private void drawHeaderTab(String label, float x, boolean selected) {
-        this.text(label, x, this.windowY + 15.0F, selected ? TEXT.getRGB() : MUTED.getRGB());
-        if (selected) {
-            this.round(x, this.windowY + 30.0F, FONT.getStringWidth(label), 2.0F, accentColor().getRGB(), 0.0F);
-        }
+        boolean hover = !selected && this.lastMouseX >= x - 5.0F && this.lastMouseX <= x + FONT.getStringWidth(label) + 6.0F
+                && this.lastMouseY >= this.windowY && this.lastMouseY <= this.windowY + HEADER_HEIGHT;
+        this.text(label, x, this.windowY + 15.0F, selected ? TEXT.getRGB() : hover ? 0xFFB4B4B8 : MUTED.getRGB());
     }
 
     private void drawLogo(float x, float y, int size) {
@@ -405,11 +487,22 @@ public class ClickGui extends GuiScreen {
         int faded = this.fade(color);
         ResourceLocation texture = this.loadGuiTexture(resource);
         if (texture == null) return;
+        DynamicTexture object = GUI_TEXTURE_OBJECTS.get(resource);
         GlStateManager.enableTexture2D();
         GlStateManager.enableAlpha();
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-        mc.getTextureManager().bindTexture(texture);
+        if (object != null) {
+
+
+            int id = object.getGlTextureId();
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
+            GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, id);
+            GlStateManager.bindTexture(id);
+        } else {
+            mc.getTextureManager().bindTexture(texture);
+        }
         GlStateManager.color((faded >> 16 & 255) / 255.0F, (faded >> 8 & 255) / 255.0F,
                 (faded & 255) / 255.0F, (faded >>> 24) / 255.0F);
         Gui.drawModalRectWithCustomSizedTexture((int) x, (int) y, 0.0F, 0.0F, size, size,
@@ -425,18 +518,74 @@ public class ClickGui extends GuiScreen {
             if (stream == null) return null;
             BufferedImage image = ImageIO.read(stream);
             if (image == null) return null;
+            DynamicTexture object = new DynamicTexture(image);
             ResourceLocation texture = mc.getTextureManager().getDynamicTextureLocation(
-                    "crewx_clickgui_" + Integer.toHexString(resource.hashCode()), new DynamicTexture(image));
+                    "crewx_clickgui_" + Integer.toHexString(resource.hashCode()), object);
             GUI_TEXTURES.put(resource, texture);
+            GUI_TEXTURE_OBJECTS.put(resource, object);
+            GUI_TEXTURE_SIZES.put(resource, new int[]{image.getWidth(), image.getHeight()});
             return texture;
         } catch (Exception ignored) {
             return null;
         }
     }
 
+
+
+
+
+
+
+
+    private static void verifyGuiTextures() {
+        if (GUI_TEXTURE_OBJECTS.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastTextureCheck < 300L) return;
+        lastTextureCheck = now;
+        Set<Integer> foreign = new java.util.HashSet<Integer>();
+        CategoryIconRenderer.collectTextureIds(foreign);
+        int atlas = FONT.textureId();
+        if (atlas > 0) foreign.add(atlas);
+        Map<Integer, String> owners = new HashMap<Integer, String>();
+        List<String> broken = null;
+        int activeUnit = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+        int previous = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        try {
+            for (Map.Entry<String, DynamicTexture> entry : GUI_TEXTURE_OBJECTS.entrySet()) {
+                int id = entry.getValue().getGlTextureId();
+                String other = owners.put(id, entry.getKey());
+                int[] size = GUI_TEXTURE_SIZES.get(entry.getKey());
+                GL11.glBindTexture(GL11.GL_TEXTURE_2D, id);
+                int width = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
+                int height = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
+                boolean bad = other != null || foreign.contains(id)
+                        || (size != null && (width != size[0] || height != size[1]));
+                if (!bad) continue;
+                if (broken == null) broken = new ArrayList<String>();
+                if (!broken.contains(entry.getKey())) broken.add(entry.getKey());
+                if (other != null && !broken.contains(other)) broken.add(other);
+            }
+        } finally {
+
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, previous);
+            GL13.glActiveTexture(activeUnit);
+        }
+        if (broken == null) return;
+        crewx.inject.CrewXBootstrap.log("ClickGUI icon textures lost their GL names, reloading " + broken);
+        for (String resource : broken) {
+
+            GUI_TEXTURE_OBJECTS.remove(resource);
+            GUI_TEXTURES.remove(resource);
+            GUI_TEXTURE_SIZES.remove(resource);
+        }
+    }
+
     private float categoryNavStep() {
-        float navHeight = Math.max(0.0F, this.bodyHeight - 60.0F);
-        return Math.max(9.0F, Math.min(35.0F, navHeight / Math.max(1, CATEGORIES.length)));
+        float navTop = this.bodyY + 29.0F;
+        float navBottom = this.windowY + this.windowHeight - FOOTER_HEIGHT - 30.0F;
+        float navHeight = Math.max(0.0F, navBottom - navTop);
+        return Math.min(35.0F, navHeight / Math.max(1, CATEGORIES.length));
     }
 
     private String trimToWidth(String value, int maxWidth) {
@@ -451,54 +600,73 @@ public class ClickGui extends GuiScreen {
     private void renderSidebar(float mouseX, float mouseY) {
         float x = this.windowX;
         float y = this.bodyY;
-        this.text("CATEGORIES", x + 14.0F, y + 10.0F, MUTED.getRGB());
+        String categoriesLabel = this.windowWidth < 150.0F ? "CAT" : "CATEGORIES";
+        this.text(this.trimToWidth(categoriesLabel, (int) Math.max(0.0F, this.sidebarWidth - 26.0F)),
+                x + 14.0F, y + 10.0F, MUTED.getRGB());
         float navY = y + 29.0F;
         float navStep = this.categoryNavStep();
+        float rowHeight = navStep <= 0.0F ? 0.0F : Math.max(1.0F, Math.min(navStep, navStep - 3.0F));
+
+        int selectedIndex = Math.max(0, java.util.Arrays.asList(CATEGORIES).indexOf(this.selectedCategory));
+        float selectedTarget = selectedIndex * navStep;
+        if (this.categorySelectionY < 0.0F) this.categorySelectionY = selectedTarget;
+        this.categorySelectionY = approach(this.categorySelectionY, selectedTarget, this.deltaTime, 15.0F);
+        if (rowHeight > 0.0F) {
+            float pillY = navY + this.categorySelectionY + (navStep - rowHeight) / 2.0F;
+            this.round(x + 8.0F, pillY, Math.max(0.0F, this.sidebarWidth - 16.0F), rowHeight,
+                    lerpColor(new Color(12, 12, 12, 255).getRGB(), accentColor().getRGB(), 0.22F),
+                    Math.min(7.0F, rowHeight / 2.0F));
+            if (rowHeight >= 4.0F) {
+                float markerHeight = Math.max(1.0F, Math.min(rowHeight - 2.0F, navStep - 8.0F));
+                this.round(x + 8.0F, navY + this.categorySelectionY + (navStep - markerHeight) / 2.0F, 2.0F, markerHeight,
+                        accentColor().getRGB(), 1.0F);
+            }
+        }
+        int categoryIndex = 0;
         for (ModuleCategory category : CATEGORIES) {
             boolean selected = category == this.selectedCategory;
             boolean hover = mouseX >= x + 7.0F && mouseX <= x + this.sidebarWidth - 7.0F
                     && mouseY >= navY && mouseY <= navY + navStep - 3.0F;
-            float rowHeight = Math.max(2.0F, navStep - 3.0F);
+            float hoverAnim = this.categoryHover[categoryIndex] =
+                    approach(this.categoryHover[categoryIndex], hover && !selected ? 1.0F : 0.0F, this.deltaTime, 12.0F);
+            categoryIndex++;
+            if (rowHeight <= 0.0F) continue;
             float rowY = navY + (navStep - rowHeight) / 2.0F;
-            if (selected || hover) {
+            if (hoverAnim > 0.01F) {
                 this.round(x + 8.0F, rowY, Math.max(0.0F, this.sidebarWidth - 16.0F), rowHeight,
-                        selected ? lerpColor(new Color(12, 12, 12, 255).getRGB(), accentColor().getRGB(), 0.25F) : new Color(21, 21, 21, 255).getRGB(),
-                        Math.min(7.0F, rowHeight / 2.0F));
-            }
-            if (selected) {
-                float markerHeight = Math.max(2.0F, Math.min(rowHeight - 2.0F, navStep - 8.0F));
-                this.round(x + 8.0F, navY + (navStep - markerHeight) / 2.0F, 2.0F, markerHeight,
-                        accentColor().getRGB(), 1.0F);
+                        withAlpha(new Color(22, 22, 24, 255).getRGB(), hoverAnim), Math.min(7.0F, rowHeight / 2.0F));
             }
             boolean compactRows = this.windowWidth < 360.0F || navStep < 18.0F;
             String categoryLabel = category.getDisplayName();
             if (this.windowWidth < 150.0F && categoryLabel.length() > 2) {
                 categoryLabel = categoryLabel.substring(0, 2).toUpperCase(Locale.ROOT);
             }
+            int activeCount = 0;
             if (!compactRows) {
-                int iconColor = selected ? Color.WHITE.getRGB() : MUTED.getRGB();
+                for (Module module : this.getModules(category)) if (module.isEnabled()) activeCount++;
+            }
+            if (!compactRows) {
+                int iconColor = selected ? Color.WHITE.getRGB() : lerpColor(MUTED.getRGB(), 0xFFC8C8CC, hoverAnim);
                 this.drawCategoryIcon(category, x + 25.0F, navY + navStep / 2.0F, iconColor, 15.0F);
             }
             float labelX = compactRows ? x + 18.0F : x + 43.0F;
-            int labelWidth = (int) Math.max(0.0F, this.sidebarWidth - (compactRows ? 26.0F : 75.0F));
+            boolean showCount = !compactRows && this.sidebarWidth >= 220.0F && activeCount > 0;
+            float labelRightInset = compactRows ? 8.0F : showCount ? 28.0F + FONT.getStringWidth(String.valueOf(activeCount)) : 14.0F;
+            int labelWidth = (int) Math.max(0.0F, x + this.sidebarWidth - labelRightInset - labelX);
             this.text(this.trimToWidth(categoryLabel, labelWidth), labelX,
                     navY + Math.max(0.0F, (navStep - FONT.getFontHeight()) / 2.0F),
                     selected ? Color.WHITE.getRGB() : TEXT.getRGB());
-            if (!compactRows) {
-                int activeCount = 0;
-                for (Module module : this.getModules(category)) if (module.isEnabled()) activeCount++;
-                if (activeCount > 0) {
-                    String count = String.valueOf(activeCount);
-                    this.text(count, x + this.sidebarWidth - FONT.getStringWidth(count) - 17.0F,
-                            navY + Math.max(0.0F, (navStep - FONT.getFontHeight()) / 2.0F),
-                            selected ? Color.WHITE.getRGB() : MUTED.getRGB());
-                }
+            if (showCount) {
+                String count = String.valueOf(activeCount);
+                this.text(count, x + this.sidebarWidth - FONT.getStringWidth(count) - 17.0F,
+                        navY + Math.max(0.0F, (navStep - FONT.getFontHeight()) / 2.0F),
+                        selected ? Color.WHITE.getRGB() : MUTED.getRGB());
             }
             navY += navStep;
         }
         float dividerY = this.windowY + this.windowHeight - FOOTER_HEIGHT - 30.0F;
         this.round(x + 14.0F, dividerY, this.sidebarWidth - 28.0F, 1.0F,
-                new Color(44, 44, 44, 255).getRGB(), 0.0F);
+                new Color(34, 34, 36, 255).getRGB(), 0.0F);
     }
 
     private void renderModulePane(float mouseX, float mouseY) {
@@ -519,10 +687,11 @@ public class ClickGui extends GuiScreen {
         float searchWidth = width - 26.0F;
         boolean searchHover = mouseX >= contentX && mouseX <= contentX + searchWidth
                 && mouseY >= this.searchY && mouseY <= this.searchY + 23.0F;
-        this.round(contentX, this.searchY, searchWidth, 23.0F,
-                this.searchFocused ? new Color(19, 19, 19, 255).getRGB() : new Color(14, 14, 14, 255).getRGB(), 7.0F);
-        if (this.searchFocused || searchHover) this.round(contentX + 8.0F, this.searchY + 22.0F,
-                searchWidth - 16.0F, 1.0F, this.searchFocused ? accentColor().getRGB() : new Color(70, 70, 70, 255).getRGB(), 0.0F);
+        int searchEdge = this.searchFocused ? withAlpha(accentColor().getRGB(), 0.55F)
+                : searchHover ? new Color(44, 44, 48, 255).getRGB() : new Color(28, 28, 31, 255).getRGB();
+        this.round(contentX, this.searchY, searchWidth, 23.0F, searchEdge, 7.0F);
+        this.round(contentX + 1.0F, this.searchY + 1.0F, searchWidth - 2.0F, 21.0F,
+                this.searchFocused ? new Color(18, 18, 20, 255).getRGB() : new Color(13, 13, 14, 255).getRGB(), 6.0F);
         this.drawSearchIcon(contentX + 7.0F, this.searchY + 5.0F, MUTED.getRGB());
         String query = this.searchText.isEmpty() && !this.searchFocused ? "Search modules..." : this.searchText + (this.searchFocused ? "_" : "");
         this.text(this.trimToWidth(query, Math.max(0, (int) searchWidth - 43)), contentX + 27.0F,
@@ -554,8 +723,11 @@ public class ClickGui extends GuiScreen {
         float hover = this.hoverAnimations.containsKey(module) ? this.hoverAnimations.get(module).floatValue() : 0.0F;
         float enabled = this.enabledAnimations.containsKey(module) ? this.enabledAnimations.get(module).floatValue() : (module.isEnabled() ? 1.0F : 0.0F);
         boolean selected = module == this.selectedModule;
-        int bg = selected ? lerpColor(new Color(14, 14, 14, 255).getRGB(), accentColor().getRGB(), 0.16F) : lerpColor(new Color(15,15,15,255).getRGB(), new Color(27,27,27,255).getRGB(), hover);
-        this.round(x, y + 1.0F, width, MODULE_ROW_HEIGHT - 2.0F, bg, 6.0F);
+        int base = lerpColor(new Color(15, 15, 16, 255).getRGB(), accentColor().getRGB(), 0.035F * enabled);
+        int bg = selected ? lerpColor(new Color(14, 14, 14, 255).getRGB(), accentColor().getRGB(), 0.16F) : lerpColor(base, new Color(25, 25, 27, 255).getRGB(), hover);
+        int edge = lerpColor(bg, 0xFF34343A, selected ? 0.0F : hover * 0.85F);
+        this.round(x, y + 1.0F, width, MODULE_ROW_HEIGHT - 2.0F, edge, 6.0F);
+        this.round(x + 1.0F, y + 2.0F, width - 2.0F, MODULE_ROW_HEIGHT - 4.0F, bg, 5.0F);
         if (selected) this.round(x, y + 7.0F, 2.0F, MODULE_ROW_HEIGHT - 14.0F, accentColor().getRGB(), 1.0F);
         String name = module == this.listeningModule ? "Press a key..." : module.getName().replace('-', ' ');
         int key = module.getKey();
@@ -568,19 +740,24 @@ public class ClickGui extends GuiScreen {
                 y + (MODULE_ROW_HEIGHT - FONT.getFontHeight()) / 2.0F,
                 keyName == null && selected ? accentColor().brighter().getRGB() : MUTED.getRGB());
         float switchY = y + 10.0F;
-        this.round(switchX, switchY, 18.0F, 9.0F,
-                lerpColor(new Color(42,42,42,255).getRGB(), accentColor().getRGB(), enabled), 5.0F);
-        this.round(switchX + 1.0F + enabled * 8.0F, switchY + 1.0F, 7.0F, 7.0F, 0xFFFFFFFF, 4.0F);
+
+        int offTrack = lerpColor(bg, 0xFFFFFFFF, 0.12F + 0.05F * hover);
+        this.round(switchX, switchY, 18.0F, 9.0F, lerpColor(offTrack, accentColor().getRGB(), enabled), 5.0F);
+        this.round(switchX + 1.0F + enabled * 8.0F, switchY + 1.0F, 7.0F, 7.0F, knobColor(enabled), 4.0F);
     }
 
     private void renderInlineSettings(Module module, float x, float y, float width, float mouseX, float mouseY) {
         float height = this.expandedSettingsHeight();
         if (height <= 0.0F) return;
         this.round(x + 2.0F, y + 2.0F, width - 4.0F, height - 5.0F,
-                new Color(12, 12, 12, 255).getRGB(), 6.0F);
+                new Color(24, 24, 27, 255).getRGB(), 6.0F);
+        this.round(x + 3.0F, y + 3.0F, width - 6.0F, height - 7.0F,
+                new Color(11, 11, 12, 255).getRGB(), 5.0F);
         this.text("SETTINGS", x + 12.0F, y + 10.0F, MUTED.getRGB());
-        this.text("Middle-click module to bind", x + width - FONT.getStringWidth("Middle-click module to bind") - 12.0F,
-                y + 10.0F, MUTED.getRGB());
+        if (width >= 245.0F) {
+            this.text("Middle-click module to bind", x + width - FONT.getStringWidth("Middle-click module to bind") - 12.0F,
+                    y + 10.0F, MUTED.getRGB());
+        }
         float settingY = y + 25.0F;
         this.settingsListY = settingY;
         this.settingsListHeight = this.propertyContentHeight();
@@ -631,8 +808,9 @@ public class ClickGui extends GuiScreen {
         boolean buttonHover = mouseX >= buttonX && mouseX <= buttonX + buttonWidth
                 && mouseY >= buttonY && mouseY <= buttonY + 20.0F;
         int buttonFill = buttonHover ? new Color(24, 24, 24, 255).getRGB() : new Color(15, 15, 15, 255).getRGB();
-        this.round(buttonX, buttonY, buttonWidth, 20.0F, new Color(39, 39, 39, 255).getRGB(), 3.0F);
-        this.round(buttonX + 1.0F, buttonY + 1.0F, buttonWidth - 2.0F, 18.0F, buttonFill, 2.0F);
+        this.round(buttonX, buttonY, buttonWidth, 20.0F,
+                buttonHover ? withAlpha(accentColor().getRGB(), 0.55F) : new Color(39, 39, 42, 255).getRGB(), 6.0F);
+        this.round(buttonX + 1.0F, buttonY + 1.0F, buttonWidth - 2.0F, 18.0F, buttonFill, 5.0F);
         String uploadLabel = this.trimToWidth("UPLOAD CONFIG", (int) buttonWidth - 14);
         this.text(uploadLabel, buttonX + (buttonWidth - FONT.getStringWidth(uploadLabel)) / 2.0F,
                 buttonY + (20.0F - FONT.getFontHeight()) / 2.0F, Color.WHITE.getRGB());
@@ -663,9 +841,9 @@ public class ClickGui extends GuiScreen {
                 boolean selected = name.equals(this.selectedConfigName);
                 int background = selected ? new Color(30, 30, 30, 255).getRGB()
                         : hover ? ROW_HOVER.getRGB() : ROW.getRGB();
-                this.round(x + 1.0F, rowY + 1.0F, width - 7.0F, CONFIG_ROW_HEIGHT - 4.0F, background, 2.0F);
-                if (selected) this.round(x + 1.0F, rowY + 6.0F, 2.0F, CONFIG_ROW_HEIGHT - 14.0F,
-                        accentColor().getRGB(), 0.0F);
+                this.round(x + 1.0F, rowY + 1.0F, width - 7.0F, CONFIG_ROW_HEIGHT - 4.0F, background, 6.0F);
+                if (selected) this.round(x + 1.0F, rowY + 8.0F, 2.0F, CONFIG_ROW_HEIGHT - 18.0F,
+                        accentColor().getRGB(), 1.0F);
                 String shown = this.trimToWidth(name, (int) (width - 74.0F));
                 float rowTextY = rowY + 1.0F + (CONFIG_ROW_HEIGHT - 4.0F - FONT.getFontHeight()) / 2.0F;
                 this.text(shown, x + 10.0F, rowTextY, TEXT.getRGB());
@@ -686,7 +864,7 @@ public class ClickGui extends GuiScreen {
     }
 
     private void refreshConfigs() {
-        File directory = crewx.config.Config.directory();
+        File directory = Config.directory();
         File[] files = directory.listFiles((dir, name) -> name.toLowerCase(Locale.ROOT).endsWith(".json"));
         this.savedConfigs.clear();
         if (files != null) {
@@ -875,8 +1053,9 @@ public class ClickGui extends GuiScreen {
         }
         if (this.scrollDragActive) {
             float delta = mouseY - this.lastScrollDragY;
-            if (this.scrollDragTarget == DRAG_MODULES) this.targetModuleScroll -= delta;
-            else if (this.scrollDragTarget == DRAG_SETTINGS) this.targetModuleScroll -= delta;
+            if (this.scrollDragTarget == DRAG_MODULES || this.scrollDragTarget == DRAG_SETTINGS) {
+                this.targetModuleScroll -= delta;
+            }
             else if (this.scrollDragTarget == DRAG_CONFIGS) this.targetConfigScroll -= delta;
         }
         this.lastScrollDragY = mouseY;
@@ -893,7 +1072,7 @@ public class ClickGui extends GuiScreen {
 
     private void renderFooter() {
         float y = this.windowY + this.windowHeight - FOOTER_HEIGHT;
-        this.round(this.windowX, y, this.windowWidth, 1.0F, new Color(35, 35, 35, 255).getRGB(), 0.0F);
+        this.round(this.windowX + 1.0F, y, this.windowWidth - 2.0F, 1.0F, new Color(26, 26, 28, 255).getRGB(), 0.0F);
     }
 
     private void drawMiniSwitch(float x, float y, float value) {
@@ -908,7 +1087,7 @@ public class ClickGui extends GuiScreen {
     private void drawScrollbar(float x, float y, float visible, float total, float scroll) {
         if (visible <= 8.0F || total <= visible) return;
         float track = visible - 8.0F;
-        this.round(x, y + 4.0F, 2.0F, track, new Color(53, 61, 77, 100).getRGB(), 1.0F);
+        this.round(x, y + 4.0F, 2.0F, track, 0x14FFFFFF, 1.0F);
         float thumb = Math.max(18.0F, track * visible / total);
         float maxScroll = total - visible;
         float position = maxScroll <= 0.0F ? 0.0F : (track - thumb) * clamp01(scroll / maxScroll);
@@ -1000,6 +1179,23 @@ public class ClickGui extends GuiScreen {
         if (mx >= this.windowX && mx <= this.windowX + this.windowWidth
                 && my >= this.windowY && my <= this.windowY + HEADER_HEIGHT) {
             if (mouseButton == 0) {
+                if (crewx.inject.CrewXBootstrap.injectionActive) {
+                    boolean confirming = this.destroyConfirmationPending();
+                    String mainLabel = confirming ? "Cancel" : "Destroy";
+                    float mainX = this.destroyButtonX(mainLabel);
+                    float confirmX = mainX - this.destroyButtonWidth("Confirm Destroy") - 12.0F;
+                    if (confirming && this.destroyButtonHit("Confirm Destroy", confirmX, mx, my)) {
+                        this.unloadConfirmUntil = 0L;
+                        if (!crewx.inject.CrewXNative.urq()) {
+                            crewx.inject.CrewXBootstrap.log("unload request could not start");
+                        }
+                        return;
+                    }
+                    if (this.destroyButtonHit(mainLabel, mainX, mx, my)) {
+                        this.unloadConfirmUntil = confirming ? 0L : System.currentTimeMillis() + 5000L;
+                        return;
+                    }
+                }
                 float modulesX = this.modulesTabX();
                 float configsX = this.configsTabX();
                 String modulesLabel = this.headerLabel(ViewTab.MODULES);
@@ -1164,11 +1360,13 @@ public class ClickGui extends GuiScreen {
 
     @Override
     public void handleMouseInput() throws IOException {
-        super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
+        int eventX = Mouse.getEventX();
+        int eventY = Mouse.getEventY();
+        super.handleMouseInput();
         if (wheel == 0) return;
-        float mouseX = this.toVirtualX(Mouse.getEventX() * this.width / mc.displayWidth);
-        float mouseY = this.toVirtualY(this.height - Mouse.getEventY() * this.height / mc.displayHeight - 1);
+        float mouseX = this.toVirtualX(eventX * this.width / mc.displayWidth);
+        float mouseY = this.toVirtualY(this.height - eventY * this.height / mc.displayHeight - 1);
         if (this.activeTab == ViewTab.CONFIGS) {
             if (mouseX >= this.windowX && mouseX <= this.windowX + this.windowWidth
                     && mouseY >= this.configListY && mouseY <= this.configListY + this.configListHeight) {
@@ -1247,18 +1445,7 @@ public class ClickGui extends GuiScreen {
     }
 
     private void drawCategoryIcon(ModuleCategory category, float x, float y, int color, float iconSize) {
-        String texture;
-        switch (category) {
-            case COMBAT: texture = COMBAT_ICON; break;
-            case MOVEMENT: texture = MOVEMENT_ICON; break;
-            case RENDER: texture = RENDER_ICON; break;
-            case PLAYER: texture = PLAYER_ICON; break;
-            case MISC: texture = MISC_ICON; break;
-            case SCRIPT: texture = SCRIPT_ICON; break;
-            default: texture = MISC_ICON;
-        }
-        int size = Math.max(8, Math.round(iconSize));
-        this.drawIcon(texture, x - size / 2.0F, y - size / 2.0F, size, color);
+        CategoryIconRenderer.draw(category, x - iconSize / 2.0F, y - iconSize / 2.0F, iconSize, this.fade(color));
     }
 
     private static String[] getModeValues(ModeProperty property) {
@@ -1381,6 +1568,14 @@ public class ClickGui extends GuiScreen {
 
     private static Color accentColor() {
         return GuiModule.getAccent();
+    }
+
+
+    private static int knobColor(float enabled) {
+        Color accent = accentColor();
+        float luminance = (0.2126F * accent.getRed() + 0.7152F * accent.getGreen() + 0.0722F * accent.getBlue()) / 255.0F;
+        if (luminance < 0.72F) return 0xFFFFFFFF;
+        return lerpColor(0xFFFFFFFF, 0xFF141416, clamp01((enabled - 0.5F) * 2.0F));
     }
 
     private static int lerpColor(int a, int b, float t) {
@@ -1524,7 +1719,7 @@ public class ClickGui extends GuiScreen {
             ClickGui.this.text(label, x + 10.0F, y + (SETTING_HEIGHT - FONT.getFontHeight()) / 2.0F, TEXT.getRGB());
             ClickGui.this.round(switchX, switchY, 25.0F, 11.0F,
                     lerpColor(TRACK.getRGB(), accentColor().getRGB(), this.toggleAnim), 6.0F);
-            ClickGui.this.round(switchX + 1.5F + 12.0F * this.toggleAnim, switchY + 1.5F, 8.0F, 8.0F, 0xFFFFFFFF, 4.0F);
+            ClickGui.this.round(switchX + 1.5F + 12.0F * this.toggleAnim, switchY + 1.5F, 8.0F, 8.0F, knobColor(this.toggleAnim), 4.0F);
         }
 
         private void renderManualBind(float x, float y, int width) {

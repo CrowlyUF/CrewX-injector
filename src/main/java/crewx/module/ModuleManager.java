@@ -15,10 +15,18 @@ public class ModuleManager {
     public final LinkedHashMap<Object, Module> modules = new LinkedHashMap<>();
 
     public Module getModule(String string) {
-        return this.modules.values().stream()
-                .filter(module -> module.getName().equalsIgnoreCase(string))
+        if (string == null) return null;
+
+        String compact = string.replace(" ", "");
+        Module found = this.modules.values().stream()
+                .filter(module -> module.getName().equalsIgnoreCase(string)
+                        || module.getName().replace(" ", "").equalsIgnoreCase(compact))
                 .findFirst()
                 .orElse(null);
+        if (found == null && "spotify".equalsIgnoreCase(compact)) {
+            found = this.modules.get(crewx.module.modules.render.MediaPlayer.class);
+        }
+        return found;
     }
 
     public Module getModule(Class<?> clazz) {

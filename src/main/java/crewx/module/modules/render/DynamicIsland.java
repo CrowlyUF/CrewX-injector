@@ -36,12 +36,14 @@ import java.util.Locale;
 public class DynamicIsland extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
 
-    private static final int BOX_HEIGHT = 20;
-    private static final float PAD_LEFT = 11.0F;
-    private static final float PAD_RIGHT = 12.0F;
-    private static final float STATUS_RADIUS = 2.5F;
-    private static final float STATUS_SPACE = STATUS_RADIUS * 2.0F + 7.0F;
-    private static final float DOT_SPACE = 11.0F;
+    private static final int BOX_HEIGHT = 22;
+
+    private static final float EXPANDED_HEIGHT = 29.0F;
+    private static final float PAD_LEFT = 13.0F;
+    private static final float PAD_RIGHT = 14.0F;
+    private static final float STATUS_RADIUS = 3.0F;
+    private static final float STATUS_SPACE = STATUS_RADIUS * 2.0F + 9.0F;
+    private static final float DOT_SPACE = 13.0F;
     private static final int DIM_TEXT = 0xFF9BA0AD;
 
     public final ModeProperty colorMode = new ModeProperty(
@@ -66,6 +68,7 @@ public class DynamicIsland extends Module {
     private float animatedWidth = -1.0F;
     private long lastFrame = 0L;
     private float scaffoldAnim = 0.0F;
+    private float hoverAnim = 0.0F;
 
     public DynamicIsland() {
         super("DynamicIsland", true, false);
@@ -81,7 +84,7 @@ public class DynamicIsland extends Module {
         lastFrame = now;
 
 
-        boolean scaffoldActive = this.scaffoldMode.getValue() && isScaffoldActive();
+        boolean scaffoldActive = (this.scaffoldMode.getValue() && isScaffoldActive()) || isBridgeAssistCounterActive();
         float animSpeed = 6.0F;
         if (scaffoldActive) {
             scaffoldAnim = Math.min(1.0F, scaffoldAnim + animSpeed * dt);
@@ -111,12 +114,16 @@ public class DynamicIsland extends Module {
         }
 
         float width = Math.min(animatedWidth, maxIslandWidth);
-        float height = BOX_HEIGHT;
+        float expand = scaffoldAnim * scaffoldAnim * (3.0F - 2.0F * scaffoldAnim);
+        float height = BOX_HEIGHT + (EXPANDED_HEIGHT - BOX_HEIGHT) * expand;
         float x = Math.round(sr.getScaledWidth() / 2.0F - width / 2.0F);
-        float y = this.offsetY.getValue();
+        float y = Math.max(2.0F, Math.min(this.offsetY.getValue(), sr.getScaledHeight() - height - 2.0F));
         float radius = Math.min(this.curve.getValue(), height / 2.0F);
-        float centerY = y + height / 2.0F;
-        float textY = y + (height - ClientFont.getHeight()) / 2.0F;
+
+        float centerY = y + BOX_HEIGHT / 2.0F + 1.0F * expand;
+        float textY = centerY - ClientFont.getHeight() / 2.0F;
+        boolean hovered = mc.currentScreen instanceof net.minecraft.client.gui.GuiChat && isMouseOver(sr, x, y, width, height);
+        hoverAnim += ((hovered ? 1.0F : 0.0F) - hoverAnim) * Math.min(1.0F, dt * 12.0F);
         Color accent = accentAt(0.0D);
         int accentRGB = accent.getRGB();
         int alpha = Math.round(255.0F * this.backgroundAlpha.getValue() / 100.0F);
@@ -126,20 +133,26 @@ public class DynamicIsland extends Module {
         RenderUtil.enableRenderState();
 
 
+        for (int i = 4; i >= 1; i--) {
+            drawRoundedRect(x - i, y - i + 1.5F, x + width + i, y + height + i + 1.5F, radius + i,
+                    withAlpha(0x000000, (int) ((10 + (4 - i) * 9) * alpha / 255.0F)));
+        }
         if (this.glow.getValue()) {
-            for (int i = 4; i >= 1; i--) {
-                int a = 4 + (4 - i) * 5;
-                drawRoundedRect(x - i, y - i, x + width + i, y + height + i, radius + i, withAlpha(accentRGB, a));
+            for (int i = 3; i >= 1; i--) {
+                drawRoundedRect(x - i, y - i, x + width + i, y + height + i, radius + i,
+                        withAlpha(accentRGB, (int) ((2 + (3 - i) * 2) * (1.0F + hoverAnim))));
             }
         }
-        drawRoundedGradient(x, y, x + width, y + height, radius,
-                argb(alpha, 30, 31, 38), argb(Math.min(255, alpha + 20), 11, 11, 15));
+        int top = argb(Math.min(255, alpha + (int) (14 * hoverAnim)), 22 + (int) (6 * hoverAnim), 23 + (int) (6 * hoverAnim), 28 + (int) (7 * hoverAnim));
+        drawRoundedGradient(x, y, x + width, y + height, radius, top, argb(Math.min(255, alpha + 16), 11, 11, 13));
 
         if (this.outline.getValue()) {
-            drawRoundedOutline(x, y, x + width, y + height, radius, withAlpha(accentRGB, 165), 1.0F);
-            drawRoundedOutline(x + 1.0F, y + 1.0F, x + width - 1.0F, y + height - 1.0F,
-                    Math.max(0.0F, radius - 1.0F), 0x14FFFFFF, 1.0F);
+            drawRoundedOutline(x, y, x + width, y + height, radius, withAlpha(0xFFFFFF, 26 + (int) (22 * hoverAnim)), 1.0F);
         }
+
+        float highlightWidth = Math.min(60.0F, Math.max(18.0F, width * 0.30F));
+        drawRoundedRect(x + width / 2.0F - highlightWidth / 2.0F, y + 0.6F,
+                x + width / 2.0F + highlightWidth / 2.0F, y + 1.3F, 0.35F, withAlpha(0xFFFFFF, 30));
 
 
         float pulse = 0.65F + 0.35F * (float) Math.sin(now / 380.0);
@@ -157,7 +170,7 @@ public class DynamicIsland extends Module {
             float cursor = x + PAD_LEFT + STATUS_SPACE;
             for (Part part : defaultParts) {
                 if (part.dot) {
-                    drawCircle(cursor + DOT_SPACE / 2.0F, centerY, 1.3F, withAlpha(accentRGB, (int) (130 * defaultAlpha)));
+                    drawDivider(cursor + DOT_SPACE / 2.0F, centerY, defaultAlpha);
                 } else {
                     int color = withAlpha(part.color, (int) (((part.color >> 24) & 0xFF) * defaultAlpha));
                     if (part.logo) {
@@ -180,11 +193,11 @@ public class DynamicIsland extends Module {
                 GlStateManager.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
                 GlStateManager.color(1.0F, 1.0F, 1.0F, scaffoldAlpha);
                 float iconX = cursor;
-                float iconY = y + (height - 16.0F) / 2.0F;
+                float iconY = centerY - 16.0F * 0.85F / 2.0F;
                 GlStateManager.translate(iconX, iconY, 0.0F);
                 GlStateManager.scale(0.85F, 0.85F, 1.0F);
                 RenderHelper.enableGUIStandardItemLighting();
-                GL11.glDisable(GL11.GL_LIGHTING);
+                GlStateManager.disableLighting();
                 GlStateManager.pushMatrix();
                 GlStateManager.scale(1.0F, 1.0F, -0.01F);
                 mc.getRenderItem().zLevel = -150.0F;
@@ -202,7 +215,7 @@ public class DynamicIsland extends Module {
 
             for (Part part : scaffoldParts) {
                 if (part.dot) {
-                    drawCircle(cursor + DOT_SPACE / 2.0F, centerY, 1.3F, withAlpha(accentRGB, (int) (130 * scaffoldAlpha)));
+                    drawDivider(cursor + DOT_SPACE / 2.0F, centerY, scaffoldAlpha);
                 } else {
                     int color = withAlpha(part.color, (int) (((part.color >> 24) & 0xFF) * scaffoldAlpha));
                     drawText(part.text, cursor, textY, color);
@@ -211,13 +224,49 @@ public class DynamicIsland extends Module {
             }
         }
 
+
+        if (expand > 0.02F) {
+            GlStateManager.disableTexture2D();
+            int total = getTotalBlocks();
+            float fraction = Math.min(1.0F, total / 128.0F);
+            float barX = x + PAD_LEFT;
+            float barW = width - PAD_LEFT - PAD_RIGHT;
+            float barY = y + height - 5.0F;
+            int barColor = total > 32 ? accentRGB : total > 8 ? 0xFFFFD45A : 0xFFFF5555;
+            drawRoundedRect(barX, barY, barX + barW, barY + 2.0F, 1.0F, withAlpha(0xFFFFFF, (int) (24 * expand)));
+            if (fraction > 0.0F) {
+                drawRoundedRect(barX, barY, barX + Math.max(2.0F, barW * fraction), barY + 2.0F, 1.0F,
+                        withAlpha(barColor, (int) (220 * expand)));
+            }
+            GlStateManager.enableTexture2D();
+        }
+
         RenderUtil.disableRenderState();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    private static boolean isMouseOver(ScaledResolution sr, float x, float y, float w, float h) {
+        float mx = org.lwjgl.input.Mouse.getX() * sr.getScaledWidth() / (float) mc.displayWidth;
+        float my = sr.getScaledHeight() - org.lwjgl.input.Mouse.getY() * sr.getScaledHeight() / (float) mc.displayHeight - 1.0F;
+        return mx >= x && mx <= x + w && my >= y && my <= y + h;
+    }
+
+
+    private static void drawDivider(float cx, float cy, float alpha) {
+        GlStateManager.disableTexture2D();
+        drawRoundedRect(cx - 0.5F, cy - 4.0F, cx + 0.5F, cy + 4.0F, 0.0F, withAlpha(0xFFFFFF, (int) (40 * alpha)));
+        GlStateManager.enableTexture2D();
     }
 
     private boolean isScaffoldActive() {
         Module scaffold = CrewX.moduleManager.modules.get(Scaffold.class);
         return scaffold != null && scaffold.isEnabled();
+    }
+
+    private boolean isBridgeAssistCounterActive() {
+        Module bridgeAssist = CrewX.moduleManager.modules.get(BridgeAssist.class);
+        return bridgeAssist instanceof BridgeAssist && bridgeAssist.isEnabled()
+                && ((BridgeAssist) bridgeAssist).blockCounter.getValue();
     }
 
     private ItemStack getHeldBlock() {

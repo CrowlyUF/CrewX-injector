@@ -99,6 +99,10 @@ public final class EventManager {
     }
 
     public static void cleanMap(boolean onlyEmptyEntries) {
+        if (!onlyEmptyEntries) {
+            REGISTRY_MAP.clear();
+            return;
+        }
         Iterator<Map.Entry<Class<? extends Event>, List<MethodData>>> mapIterator = REGISTRY_MAP.entrySet().iterator();
         while (mapIterator.hasNext()) {
             if (!onlyEmptyEntries || mapIterator.next().getValue().isEmpty()) {

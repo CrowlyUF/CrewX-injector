@@ -4,7 +4,10 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.FileResourcePack;
 import net.minecraft.client.resources.IResourcePack;
@@ -26,6 +29,12 @@ import net.minecraft.client.resources.IResourcePack;
 
 
 public final class CrewXBootstrap {
+
+    private static final Map<Class<?>, byte[]> ORIGINAL_HOOKS = new LinkedHashMap<>();
+    private static volatile boolean unloadStarted;
+    public static volatile boolean injectionActive;
+    private static IResourcePack installedResourcePack;
+    private static List<IResourcePack> installedResourcePacks;
 
     private static final String[] RUNTIME_HOOK_TARGETS = {
             "net.minecraft.client.Minecraft",
@@ -72,6 +81,13 @@ public final class CrewXBootstrap {
     }
 
     public static void start() {
+        if (unloadStarted) {
+            CrewXRuntimeTransformer.resetAfterUnload();
+            CrewXRuntimeHooks.resetAfterUnload();
+            crewx.CrewX.unloaded = false;
+            unloadStarted = false;
+            log("reset runtime state for reinjection");
+        }
         redirectConsole();
         log("CrewXBootstrap.start (loader=" + describeLoader(CrewXBootstrap.class.getClassLoader()) + ")");
         log("contextLoader=" + describeLoader(Thread.currentThread().getContextClassLoader()));
@@ -95,8 +111,108 @@ public final class CrewXBootstrap {
             }
             log("WARN client-thread handoff failed; falling back to tick-lazy init");
         } else {
+            injectionActive = true;
             log("CrewX client-thread initialization completed");
         }
+    }
+
+
+    public static boolean unload() {
+        if (unloadStarted) return false;
+        unloadStarted = true;
+        try {
+            ClassLoader loader = Thread.currentThread().getContextClassLoader();
+            if (loader == null) loader = CrewXBootstrap.class.getClassLoader();
+            Class<?> minecraftClass = Class.forName(
+                    NotchMappings.className("net.minecraft.client.Minecraft"), false, loader);
+            Object minecraft = minecraftClass.getMethod(NotchMappings.methodName(
+                    "net.minecraft.client.Minecraft", "getMinecraft",
+                    "()Lnet/minecraft/client/Minecraft;")).invoke(null);
+            if (minecraft == null) return false;
+            final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+            final boolean[] success = new boolean[1];
+            Runnable task = new Runnable() {
+                @Override public void run() {
+                    try {
+                        success[0] = unloadOnClientThread();
+                    } catch (Throwable error) {
+                        log("unload FAILED: " + describeFailure(error));
+                    } finally {
+                        done.countDown();
+                    }
+                }
+            };
+            boolean scheduled = false;
+            for (Method candidate : minecraftClass.getMethods()) {
+                if (candidate.getName().equals(NotchMappings.methodName(
+                        "net.minecraft.client.Minecraft", "addScheduledTask",
+                        "(Ljava/lang/Runnable;)Lcom/google/common/util/concurrent/ListenableFuture;"))
+                        && candidate.getParameterTypes().length == 1
+                        && candidate.getParameterTypes()[0].isAssignableFrom(Runnable.class)) {
+                    candidate.invoke(minecraft, task);
+                    scheduled = true;
+                    break;
+                }
+            }
+            if (!scheduled || !done.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                log("unload FAILED: client-thread cleanup unavailable or timed out");
+                return false;
+            }
+            return success[0];
+        } catch (Throwable error) {
+            log("unload FAILED: " + describeFailure(error));
+            return false;
+        }
+    }
+
+    private static boolean unloadOnClientThread() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (crewx.CrewX.moduleManager == null) {
+            log("unload FAILED: CrewX was not initialized");
+            return false;
+        }
+
+
+        new crewx.config.Config(crewx.config.Config.lastConfig, false).save(false);
+        crewx.config.Config.suspendAutoSave();
+        crewx.CrewX.unloaded = true;
+        if (mc.currentScreen instanceof crewx.gui.ClickGui) mc.displayGuiScreen(null);
+        for (crewx.module.Module module : crewx.CrewX.moduleManager.modules.values()) {
+            if (!module.isEnabled()) continue;
+            try { module.setEnabled(false); }
+            catch (Throwable error) { log("unload module " + module.getName() + ": " + describeFailure(error)); }
+        }
+        try { if (crewx.CrewX.discordRPC != null) crewx.CrewX.discordRPC.shutdown(); }
+        catch (Throwable error) { log("unload RPC: " + describeFailure(error)); }
+        crewx.event.EventManager.cleanMap(false);
+
+        boolean restored = true;
+        List<Map.Entry<Class<?>, byte[]>> hooks = new ArrayList<>(ORIGINAL_HOOKS.entrySet());
+        for (int i = hooks.size() - 1; i >= 0; --i) {
+            Map.Entry<Class<?>, byte[]> hook = hooks.get(i);
+            try {
+                int result = CrewXNative.scb(hook.getKey(), hook.getValue());
+                if (result != 0) {
+                    restored = false;
+                    log("unload restore FAILED " + hook.getKey().getName() + ": JVMTI=" + result);
+                }
+            } catch (Throwable error) {
+                restored = false;
+                log("unload restore FAILED " + hook.getKey().getName() + ": " + describeFailure(error));
+            }
+        }
+        if (!restored) return false;
+        ORIGINAL_HOOKS.clear();
+        if (installedResourcePacks != null && installedResourcePack != null) {
+            installedResourcePacks.remove(installedResourcePack);
+            installedResourcePacks = null;
+            installedResourcePack = null;
+            try { mc.refreshResources(); } catch (Throwable ignored) {}
+        }
+        crewx.CrewX.initializationComplete = false;
+        injectionActive = false;
+        log("unload complete: modules stopped and runtime hooks restored");
+        return true;
     }
 
 
@@ -225,6 +341,7 @@ public final class CrewXBootstrap {
                 if (NotchMappings.isNotch()) patched = NotchMappings.toNotch(patched);
                 else if (NotchMappings.isSrg()) patched = NotchMappings.namedToSrg(patched);
                 int result = CrewXNative.scb(target, patched);
+                if (result == 0) ORIGINAL_HOOKS.put(target, original);
                 log("hook " + className + ": scb=" + result
                         + " (" + original.length + " -> " + patched.length + " bytes)");
                 if (NotchMappings.isNotch()
@@ -336,7 +453,10 @@ public final class CrewXBootstrap {
                         return;
                     }
                 }
-                packs.add(new FileResourcePack(jar));
+                FileResourcePack pack = new FileResourcePack(jar);
+                packs.add(pack);
+                installedResourcePack = pack;
+                installedResourcePacks = packs;
                 mc.refreshResources();
                 log("registered CrewX resources: " + jar.getName());
                 return;

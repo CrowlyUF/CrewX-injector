@@ -6,6 +6,7 @@ package crewx.module.modules.combat;
 
 
 
+import net.minecraft.client.renderer.GlStateManager;
 import crewx.CrewX;
 import crewx.event.EventTarget;
 import crewx.event.types.EventType;
@@ -311,7 +312,7 @@ public class Backtrack extends Module {
                 .offset(-renderManager.getRenderPosX(), -renderManager.getRenderPosY(), -renderManager.getRenderPosZ());
         Color color = new Color(this.espColor.getValue() & 0xFFFFFF);
         RenderUtil.enableRenderState();
-        GL11.glColor4f(color.getRed() / 255.0F, color.getGreen() / 255.0F, color.getBlue() / 255.0F, 1.0F);
+        GlStateManager.color(color.getRed() / 255.0F, color.getGreen() / 255.0F, color.getBlue() / 255.0F, 1.0F);
         RenderUtil.drawFilledBox(box, color.getRed(), color.getGreen(), color.getBlue());
         RenderUtil.drawBoundingBox(box, color.getRed(), color.getGreen(), color.getBlue(), 220, 1.6F);
         RenderUtil.disableRenderState();
@@ -649,6 +650,8 @@ public class Backtrack extends Module {
             entity.lastTickPosY = oldLastY;
             entity.lastTickPosZ = oldLastZ;
             GL11.glPopAttrib();
+
+            crewx.util.GlStateSync.afterPopAttrib();
             RenderUtil.disableRenderState();
         }
     }
