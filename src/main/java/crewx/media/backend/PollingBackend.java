@@ -8,7 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
-
+/** Shared skeleton for backends that poll an external command (Linux playerctl, macOS osascript). */
 abstract class PollingBackend implements MediaBackend {
     private final long intervalMs;
     private ScheduledExecutorService executor;
@@ -20,7 +20,7 @@ abstract class PollingBackend implements MediaBackend {
         this.intervalMs = intervalMs;
     }
 
-
+    /** Returns the current media, or null when nothing plays. Throws when the tool is missing. */
     abstract MediaInfo poll() throws Exception;
 
     abstract void execute(MediaAction action, long argument);

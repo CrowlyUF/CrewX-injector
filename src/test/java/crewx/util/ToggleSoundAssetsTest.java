@@ -10,7 +10,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-
+/** The toggle chimes must be decodable by the same Ogg codec Minecraft 1.8.9 uses to play them. */
 public class ToggleSoundAssetsTest {
     private static void assertPlayable(String path) {
         URL url = ToggleSoundAssetsTest.class.getResource(path);

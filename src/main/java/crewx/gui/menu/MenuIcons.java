@@ -3,7 +3,7 @@ package crewx.gui.menu;
 import net.minecraft.client.renderer.GlStateManager;
 import org.lwjgl.opengl.GL11;
 
-
+/** White menu icons (person, people, alts, options, quit) tinted at draw time. */
 public final class MenuIcons {
     public static final String SINGLEPLAYER = "icon_singleplayer.png";
     public static final String MULTIPLAYER = "icon_multiplayer.png";

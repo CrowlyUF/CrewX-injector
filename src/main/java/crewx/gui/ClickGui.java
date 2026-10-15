@@ -115,6 +115,8 @@ public class ClickGui extends GuiScreen {
     private String selectedConfigName = "";
     private String configImportStatus = "";
     private long configImportStatusUntil;
+    private volatile File pendingConfigImport;
+    private volatile boolean configPickerFailed;
     private long unloadConfirmUntil;
     private Module pendingModuleClick;
     private boolean pendingModuleSettingsHit;
@@ -180,6 +182,7 @@ public class ClickGui extends GuiScreen {
 
     @Override
     public void initGui() {
+        crewx.util.TextureGuard.requestCheck();
         this.closing = false;
         this.animation = 0.0F;
         this.animationStep();
@@ -198,6 +201,15 @@ public class ClickGui extends GuiScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         ++drawCount;
+        File selectedImport = this.pendingConfigImport;
+        if (selectedImport != null) {
+            this.pendingConfigImport = null;
+            this.importConfigFile(selectedImport);
+        }
+        if (this.configPickerFailed) {
+            this.configPickerFailed = false;
+            this.setConfigImportStatus("Could not open the file picker.");
+        }
         if (!this.firstFrameLogged) {
             this.firstFrameLogged = true;
             crewx.inject.CrewXBootstrap.log("ClickGUI first frame");
@@ -922,24 +934,18 @@ public class ClickGui extends GuiScreen {
                             owner.dispose();
                         }
                         if (selected != null) {
-                            mc.addScheduledTask(new Runnable() {
-                                @Override
-                                public void run() {
-                                    importConfigFile(selected);
-                                }
-                            });
+                            pendingConfigImport = selected;
                         }
                     } catch (final Throwable error) {
-                        mc.addScheduledTask(new Runnable() {
-                            @Override
-                            public void run() {
-                                setConfigImportStatus("Could not open the file picker.");
-                            }
-                        });
+                        crewx.inject.CrewXBootstrap.log("Config picker failed: "
+                                + error);
+                        configPickerFailed = true;
                     }
                 }
             });
         } catch (Throwable error) {
+            crewx.inject.CrewXBootstrap.log("Config picker startup failed: "
+                    + error);
             this.setConfigImportStatus("Could not open the file picker.");
         }
     }
@@ -991,6 +997,8 @@ public class ClickGui extends GuiScreen {
             this.configScroll = 0.0F;
             this.setConfigImportStatus("Imported: " + this.configName(target));
         } catch (Exception error) {
+            crewx.inject.CrewXBootstrap.log("Config import failed: "
+                    + error);
             this.setConfigImportStatus("Could not import the selected config.");
         }
     }

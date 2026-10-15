@@ -8,8 +8,6 @@ import net.minecraft.client.multiplayer.PlayerControllerMP;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.BlockPos;
-import net.minecraft.util.EnumFacing;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import org.spongepowered.asm.mixin.Mixin;
@@ -21,18 +19,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @SideOnly(Side.CLIENT)
 @Mixin(value = {PlayerControllerMP.class}, priority = 9999)
 public abstract class MixinPlayerControllerMP {
-
-    @Inject(method = {"clickBlock", "onPlayerDamageBlock"}, at = @At("HEAD"))
-    private void crewx$beginSilentMining(BlockPos pos, EnumFacing facing,
-                                         CallbackInfoReturnable<Boolean> callbackInfo) {
-        crewx.module.modules.player.AutoTool.beginSilentMining();
-    }
-
-    @Inject(method = {"clickBlock", "onPlayerDamageBlock"}, at = @At("RETURN"))
-    private void crewx$endSilentMining(BlockPos pos, EnumFacing facing,
-                                       CallbackInfoReturnable<Boolean> callbackInfo) {
-        crewx.module.modules.player.AutoTool.endSilentMining();
-    }
 
     @Inject(
             method = "attackEntity",

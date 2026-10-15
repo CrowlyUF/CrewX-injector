@@ -33,12 +33,12 @@ public class MediaPlayerLayoutTest {
 
     @Test
     public void staysInsideTheScreenAtTheMaximum() {
-        float screenW = 640, screenH = 360;
+        float screenW = 640, screenH = 360; // 1920x1080 at GUI scale 3
         float width = MediaPlayerLayout.width(460, 200, screenW, screenH, true);
         float totalHeight = width * (MediaPlayerLayout.CARD_RATIO + MediaPlayerLayout.LYRICS_RATIO);
         assertTrue(width <= screenW * 0.7F + EPS);
         assertTrue(totalHeight <= screenH - 16.0F + EPS);
-
+        // without lyrics the card may be wider, still within the screen
         float noLyrics = MediaPlayerLayout.width(460, 200, screenW, screenH, false);
         assertTrue(noLyrics >= width && noLyrics <= screenW * 0.7F + EPS);
     }
@@ -51,10 +51,10 @@ public class MediaPlayerLayoutTest {
     @Test
     public void cardOnlyShowsWhileMusicPlays() {
         assertTrue(MediaPlayerLayout.shouldShow(true, true, 0L, false));
-        assertTrue(!MediaPlayerLayout.shouldShow(false, false, 0L, false));
-        assertTrue(!MediaPlayerLayout.shouldShow(false, false, 0L, true));
-        assertTrue(MediaPlayerLayout.shouldShow(true, false, 1000L, false));
-        assertTrue(!MediaPlayerLayout.shouldShow(true, false, 10000L, false));
-        assertTrue(MediaPlayerLayout.shouldShow(true, false, 10000L, true));
+        assertTrue(!MediaPlayerLayout.shouldShow(false, false, 0L, false));       // nothing detected
+        assertTrue(!MediaPlayerLayout.shouldShow(false, false, 0L, true));        // not even with chat open
+        assertTrue(MediaPlayerLayout.shouldShow(true, false, 1000L, false));      // short grace after pause
+        assertTrue(!MediaPlayerLayout.shouldShow(true, false, 10000L, false));    // paused for a while: hidden
+        assertTrue(MediaPlayerLayout.shouldShow(true, false, 10000L, true));      // chat open: can resume/move
     }
 }

@@ -59,17 +59,23 @@ public abstract class MixinGuiNewChat {
         int alpha = this.crewx$panelAlpha(chat, updateCounter);
         if (alpha <= 0) return;
         int color = (alpha << 24) | 0x000C0D0F;
-
+        // starts just left of the text (the chat is drawn 2px from the screen edge) so the rounded corner shows
         float x = -1.5F;
         float y = -contentHeight - 4.0F;
         float w = contentWidth + 0.5F;
         float h = contentHeight + 8.0F;
-
+        // soft drop shadow, then the frosted panel with rounder corners
         for (int i = 3; i >= 1; i--) {
             int shadow = Math.round(alpha * 0.10F) << 24;
             crewx.clickgui.render.RoundedUtils.drawRoundedRect(x - i, y - i + 1.0F, w + i * 2.0F, h + i * 2.0F, shadow, 5.0F + i);
         }
-        BackdropBlur.drawRoundedPanel(x, y, w, h, 5.0F, color);
+        // drawn inside the chat's own translate/scale: let the blur copy the whole window rather than guess
+        BackdropBlur.beginUnknownTransform();
+        try {
+            BackdropBlur.drawRoundedPanel(x, y, w, h, 5.0F, color);
+        } finally {
+            BackdropBlur.endUnknownTransform();
+        }
     }
 
     @Redirect(

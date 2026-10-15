@@ -7,16 +7,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-
-
-
-
+/**
+ * Linux: any MPRIS player (Spotify, browsers, VLC...) through the "playerctl" command. All players are read
+ * and the one that is actually playing wins, so a paused browser tab cannot hide Spotify (or the reverse).
+ */
 public final class LinuxMediaBackend extends PollingBackend {
     private static final String SEP = "\u001f";
     private static final String FORMAT = String.join(SEP, "{{status}}", "{{title}}", "{{artist}}", "{{album}}",
             "{{mpris:length}}", "{{position}}", "{{mpris:artUrl}}", "{{playerName}}");
 
-
+    /** MPRIS name of the player shown on the card; controls go to it. */
     private volatile String activePlayer = "";
 
     public LinuxMediaBackend() {
@@ -26,7 +26,7 @@ public final class LinuxMediaBackend extends PollingBackend {
     @Override
     MediaInfo poll() throws Exception {
         Exec.Output output = Exec.run(Arrays.asList("playerctl", "--all-players", "metadata", "--format", FORMAT), 2500L);
-
+        // exit code 1 + "No players found" just means nothing is open; a missing binary throws instead
         if (output.exitCode != 0 || output.text.trim().isEmpty()) {
             this.activePlayer = "";
             return null;
@@ -37,7 +37,7 @@ public final class LinuxMediaBackend extends PollingBackend {
         return info;
     }
 
-
+    /** One line per player: the first one that is playing, otherwise the first paused one with a title. */
     static String pickLine(String output) {
         String fallback = null;
         for (String line : output.split("\n")) {
@@ -49,7 +49,7 @@ public final class LinuxMediaBackend extends PollingBackend {
         return fallback;
     }
 
-
+    /** Exposed for tests. */
     static MediaInfo parse(String line, long now) {
         String[] f = line.split(SEP, -1);
         if (f.length < 8 || f[1].trim().isEmpty()) return null;

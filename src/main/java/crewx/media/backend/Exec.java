@@ -7,7 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-
+/** Runs a short-lived command and captures stdout. */
 final class Exec {
     static final class Output {
         final int exitCode;

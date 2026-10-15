@@ -38,12 +38,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
-
-
-
-
-
-
+/**
+ * Alt Manager in the CrewX style (same dark panels, white type and theme accent as the ClickGUI, over the
+ * menu's space background). Only the presentation changed: adding, deleting, reordering (Ctrl+Up/Down),
+ * copying (Ctrl+C), logging in (double click / Enter / Login), Browser Login, Mush stats and ban status
+ * all use the original logic below.
+ */
 public class GuiAccountManager extends GuiScreen {
     private static final float ROW_HEIGHT = 40.0F;
     private static final float ROW_GAP = 4.0F;
@@ -67,20 +67,20 @@ public class GuiAccountManager extends GuiScreen {
     private CompletableFuture<Void> task;
     private final Map<String, MushProfileService.Stats> accountStats = new HashMap<String, MushProfileService.Stats>();
 
-
+    // presentation state
     private final Map<Account, float[]> rowAnim = new HashMap<Account, float[]>();
     private static final int RANDOM_ALT = 7;
-
+    /** Back is the last one (on the left); the rest line up on the right in this order. */
     private final PillButton[] footer = {
             new PillButton(1, "Add", "Add"), new PillButton(RANDOM_ALT, "Random Alt", "Random"),
             new PillButton(3, "Browser Login", "Browser"), new PillButton(5, "Login", "Login"),
             new PillButton(4, "Delete", "Delete"), new PillButton(6, "Back", "Back")
     };
     private final RandomAltName randomNames = new RandomAltName();
-
+    /** The account just created by Random Alt glows briefly in the list. */
     private Account freshAccount;
     private long freshAt;
-
+    /** When a Random Alt name is being checked (one at a time). */
     private long randomPendingSince;
     private long openedAt;
     private long closingAt;
@@ -154,7 +154,7 @@ public class GuiAccountManager extends GuiScreen {
         this.listH = this.panelH - HEADER - FOOTER;
         float y = this.panelY + this.panelH - FOOTER + 10.0F;
         float h = 22.0F;
-
+        // narrow panels: shorter labels first, then tighter padding and gaps, so the pills never overlap
         float available = this.panelW - 24.0F;
         boolean compact = footerWidth(false, 24.0F, 6.0F) > available;
         float padding = 24.0F;
@@ -163,7 +163,7 @@ public class GuiAccountManager extends GuiScreen {
             padding = Math.max(10.0F, padding - 1.0F);
             gap = Math.max(3.0F, gap - 0.25F);
         }
-
+        // Back on the left, actions on the right
         int last = this.footer.length - 1;
         PillButton back = this.footer[last];
         for (PillButton b : this.footer) {
@@ -181,7 +181,7 @@ public class GuiAccountManager extends GuiScreen {
         }
     }
 
-
+    /** Width of the whole footer row (Back + a wider gap + the actions) for the given label set and spacing. */
     private float footerWidth(boolean compact, float padding, float gap) {
         float total = 0.0F;
         for (PillButton b : this.footer) {
@@ -205,7 +205,7 @@ public class GuiAccountManager extends GuiScreen {
     public void updateScreen() {
     }
 
-
+    // ------------------------------------------------------------------ drawing
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
@@ -255,7 +255,7 @@ public class GuiAccountManager extends GuiScreen {
         int count = AccountManager.accounts.size();
         GuiRender.text(count + (count == 1 ? " account" : " accounts"), x, y + 15.0F, GuiRender.alpha(MUTED, open));
 
-
+        // the account in use, on the right
         String current = SessionManager.get().getUsername();
         float avatar = 22.0F;
         float nameW = ClientFont.getStringWidthFloat(current);
@@ -304,7 +304,7 @@ public class GuiAccountManager extends GuiScreen {
             boolean hovered = listHovered && mouseY >= rowY && mouseY <= rowY + ROW_HEIGHT;
             anim[0] = approach(anim[0], hovered ? 1.0F : 0.0F, dt, 14.0F);
             anim[1] = approach(anim[1], i == this.selectedAccount ? 1.0F : 0.0F, dt, 14.0F);
-
+            // rows cascade in on open
             float rowIn = ease(Math.max(0.0F, Math.min(1.0F, (System.currentTimeMillis() - this.openedAt - 40L * Math.min(i, 8)) / 260.0F)));
             float a = open * rowIn;
             drawRow(account, i, listX + 6.0F * (1.0F - rowIn), rowY, listW, anim, a, accent,
@@ -326,7 +326,7 @@ public class GuiAccountManager extends GuiScreen {
         int bg = GuiRender.mix(GuiRender.mix(ROW, ROW_HOVER, anim[0]), ROW_SELECTED, anim[1]);
         RoundedUtils.drawRoundedRect(x, y, w, ROW_HEIGHT, GuiRender.alpha(bg, a), 8.0F);
         if (account == this.freshAccount) {
-
+            // freshly generated alt: a soft accent wash that fades out
             float glow = 1.0F - Math.min(1.0F, (System.currentTimeMillis() - this.freshAt) / 1400.0F);
             if (glow > 0.0F) RoundedUtils.drawRoundedRect(x, y, w, ROW_HEIGHT, GuiRender.alpha(accent, 0.22F * glow * glow * a), 8.0F);
         }
@@ -355,7 +355,7 @@ public class GuiAccountManager extends GuiScreen {
         float after = pill(type, tx, second - 1.5F, typeColor, a) + 6.0F;
         String uuid = StringUtils.isBlank(account.getUuid()) ? "UUID unavailable" : account.getUuid();
 
-
+        // right side: ban status + stats
         float statsW = ClientFont.getStringWidthFloat("Stats") + 16.0F;
         float statsX = x + w - statsW - 10.0F;
         float statsY = y + (ROW_HEIGHT - 16.0F) / 2.0F;
@@ -372,7 +372,7 @@ public class GuiAccountManager extends GuiScreen {
         GuiRender.text(GuiRender.trim(uuid, (int) Math.max(10.0F, limit - after)), after, second, GuiRender.alpha(FAINT, a));
     }
 
-
+    /** Small rounded tag (tinted background, coloured text); returns the x after it. */
     private float pill(String text, float x, float y, int color, float a) {
         float w = ClientFont.getStringWidthFloat(text) + 10.0F;
         float h = ClientFont.getHeight() + 3.0F;
@@ -397,7 +397,7 @@ public class GuiAccountManager extends GuiScreen {
             RoundedUtils.drawRoundedRect(b.x, b.y, b.w, b.h, GuiRender.alpha(fill, a), b.h / 2.0F);
             if (!primary) GuiRender.roundedOutline(b.x, b.y, b.w, b.h, b.h / 2.0F, 1.0F, GuiRender.alpha(0x14FFFFFF, a));
             int textColor = b.id == 4 && b.enabled ? GuiRender.mix(0xFFE6E7EA, 0xFFFF6B6B, b.hover) : 0xFFFFFFFF;
-            if (primary && luminance(base) > 0.6F) textColor = 0xFF0B0B0D;
+            if (primary && luminance(base) > 0.6F) textColor = 0xFF0B0B0D;   // light theme colour: dark label
             GuiRender.textCentered(b.label, b.x + b.w / 2.0F, b.y + (b.h - ClientFont.getHeight()) / 2.0F + 0.5F,
                     GuiRender.alpha(textColor, a));
         }
@@ -405,7 +405,7 @@ public class GuiAccountManager extends GuiScreen {
 
     private void drawToast(float open) {
         if (notification == null || notification.isExpired()) return;
-
+        // the messages carry Minecraft colour codes: draw them as coloured runs in the client font
         List<String> parts = new ArrayList<String>();
         List<Integer> colors = new ArrayList<Integer>();
         splitColors(notification.getMessage(), parts, colors);
@@ -427,7 +427,7 @@ public class GuiAccountManager extends GuiScreen {
         }
     }
 
-
+    /** "\u00a7aDone \u00a7f(x)" -> ["Done ", "(x)"] with their colours (format codes are dropped). */
     private static void splitColors(String message, List<String> parts, List<Integer> colors) {
         int color = 0xFFFFFFFF;
         StringBuilder run = new StringBuilder();
@@ -453,21 +453,21 @@ public class GuiAccountManager extends GuiScreen {
 
     private static int colorOf(char code, int current) {
         switch (Character.toLowerCase(code)) {
-            case 'a': return 0xFF5BD68A;
-            case 'c': return 0xFFFF6B6B;
-            case 'e': return 0xFFFFD166;
-            case '7': return 0xFF9A9EA8;
+            case 'a': return 0xFF5BD68A;   // green
+            case 'c': return 0xFFFF6B6B;   // red
+            case 'e': return 0xFFFFD166;   // yellow
+            case '7': return 0xFF9A9EA8;   // gray
             case '8': return 0xFF6B6F78;
             case 'b': return 0xFF6ED3FF;
             case 'd': return 0xFFD08CFF;
             case '6': return 0xFFFFB347;
             case 'f':
             case 'r': return 0xFFFFFFFF;
-            default: return current;
+            default: return current;       // other colours / formatting: keep the current colour
         }
     }
 
-
+    // ------------------------------------------------------------------ input
 
     @Override
     public void handleMouseInput() throws IOException {
@@ -547,12 +547,12 @@ public class GuiAccountManager extends GuiScreen {
         if (this.closingAt == 0L) this.closingAt = System.currentTimeMillis();
     }
 
-
-
-
-
-
-
+    /**
+     * Random Alt: generates a natural-looking name that is free in the list and adds it the same way "Add" adds a
+     * cracked account (offline, no credentials, nothing is authenticated). The new alt is selected; Login uses it.
+     * A name that already belongs to a registered Mush player is skipped (it would take that player's profile);
+     * when the lookup is not reachable, only the local list is checked.
+     */
     private void addRandomAlt() {
         if (this.randomPendingSince != 0L && System.currentTimeMillis() - this.randomPendingSince < 8000L) return;
         this.randomPendingSince = System.currentTimeMillis();
@@ -571,7 +571,7 @@ public class GuiAccountManager extends GuiScreen {
             @Override
             public void onResult(MushProfileService.Profile profile) {
                 if (profile != null || isNameInList(name)) {
-
+                    // taken by a registered player (or added meanwhile): try another name
                     if (attempt < 5) {
                         tryRandomAlt(attempt + 1);
                     } else {
@@ -598,7 +598,7 @@ public class GuiAccountManager extends GuiScreen {
                 "&aRandom alt added: &f" + name + " &7(cracked, not logged in yet)&r"), 3500L);
     }
 
-
+    /** Any account in the list already using this name (case-insensitive, like Minecraft usernames). */
     private boolean isNameInList(String name) {
         for (Account existing : AccountManager.accounts) {
             if (name.equalsIgnoreCase(existing.getUsername())) return true;
@@ -660,7 +660,7 @@ public class GuiAccountManager extends GuiScreen {
         Module module = CrewX.moduleManager == null ? null : CrewX.moduleManager.modules.get(HUD.class);
         if (module instanceof HUD) {
             int rgb = ((HUD) module).getColor(System.currentTimeMillis()).getRGB();
-
+            // very light theme colours (e.g. white) would vanish on the white text: keep a visible tint
             return rgb | 0xFF000000;
         }
         return CrewXTheme.ACCENT;
@@ -680,7 +680,7 @@ public class GuiAccountManager extends GuiScreen {
         return Math.abs(target - next) < 0.002F ? target : next;
     }
 
-
+    // ------------------------------------------------------------------ account logic (unchanged)
 
     private void deleteSelected() {
         if (selectedAccount < 0 || selectedAccount >= AccountManager.accounts.size()) {

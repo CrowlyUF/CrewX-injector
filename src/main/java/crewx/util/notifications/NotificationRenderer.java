@@ -10,11 +10,11 @@ import org.lwjgl.opengl.GL11;
 
 import java.util.List;
 
-
-
-
-
-
+/**
+ * Jello-style notifications: a dark rounded card with a small switch icon, a bold title ("Enabled" /
+ * "Disabled") and the module name underneath. On a toggle the switch knob slides to its new side; the card
+ * slides in from the screen edge and back out when its time is over.
+ */
 public class NotificationRenderer implements INotificationRenderer {
     private static final float MARGIN = 8.0F;
     private static final float BOX_HEIGHT = 30.0F;
@@ -40,7 +40,7 @@ public class NotificationRenderer implements INotificationRenderer {
         long now = System.currentTimeMillis();
 
         float slotY = bottom ? screenHeight - MARGIN - BOX_HEIGHT : MARGIN;
-
+        // at the bottom the newest card takes the lowest slot and pushes the older ones up
         List<INotification> order = new java.util.ArrayList<INotification>(notifications);
         if (bottom) java.util.Collections.reverse(order);
         for (INotification value : order) {
@@ -62,7 +62,7 @@ public class NotificationRenderer implements INotificationRenderer {
             float hiddenX = right ? screenWidth + 2.0F : -boxWidth - 2.0F;
             float shownX = right ? screenWidth - MARGIN - boxWidth : MARGIN;
             float x = hiddenX + (shownX - hiddenX) * appear;
-
+            // vertical slot glides when a card above/below goes away; a new card starts in its own slot
             if (!notification.placed) {
                 notification.placed = true;
                 notification.translate.setX(x);
@@ -101,13 +101,13 @@ public class NotificationRenderer implements INotificationRenderer {
         GlStateManager.disableBlend();
     }
 
-
+    /** The little lever: a short line with a round knob at {@code knob} 0 (left) .. 1 (right). */
     private static void drawSwitch(float cx, float cy, float knob, float appear) {
         float half = 6.0F;
         float lineH = 1.6F;
         float knobR = 3.2F;
         float knobX = cx - half + knob * half * 2.0F;
-
+        // track: brighter on the side the knob came from looks like the "string" of the lever in the reference
         RoundedUtils.drawRoundedRect(cx - half - knobR, cy - lineH / 2.0F, (half + knobR) * 2.0F, lineH,
                 alpha(0xFFFFFF, 0.85F * appear), lineH / 2.0F);
         RoundedUtils.drawRoundedRect(knobX - knobR, cy - knobR, knobR * 2.0F, knobR * 2.0F,

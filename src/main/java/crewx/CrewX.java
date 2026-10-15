@@ -94,7 +94,7 @@ public class CrewX {
         moduleManager.modules.put(SprintReset.class, new SprintReset());
         moduleManager.modules.put(DynamicIsland.class, new DynamicIsland());
         moduleManager.modules.put(Piercing.class, new Piercing());
-        moduleManager.modules.put(HackerDetector.class, new HackerDetector());
+        moduleManager.modules.put(AntiCheat.class, new AntiCheat());
         moduleManager.modules.put(AutoSoup.class, new AutoSoup());
         moduleManager.modules.put(BedNuker.class, new BedNuker());
         moduleManager.modules.put(BedESP.class, new BedESP());
@@ -188,6 +188,7 @@ public class CrewX {
         commandManager.commands.add(new ShowCommand());
         commandManager.commands.add(new TargetCommand());
         commandManager.commands.add(new ToggleCommand());
+        commandManager.commands.add(new crewx.command.commands.HitchesCommand());
         commandManager.commands.add(new VclipCommand());
         for (Module module : moduleManager.modules.values()) {
             ArrayList<Property<?>> properties = new ArrayList<>();
@@ -214,8 +215,8 @@ public class CrewX {
         Config config = new Config(Config.activeName(), false);
         if (config.file.exists()) {
             File defaultsMarker = new File(config.file.getParentFile(), ".module-defaults-v1");
-
-
+            // Existing injectable installations already have user-selected module states.
+            // The upstream migration is only appropriate for an untouched default config.
             boolean resetOldToggleStates = !defaultsMarker.exists()
                     && "default".equals(config.name)
                     && !new File(config.file.getParentFile(), ".active-config").exists();
@@ -267,7 +268,7 @@ public class CrewX {
         }
 
         AccountManager.init();
-
+        // menu space background: decode its textures in the background now, free them while playing
         EventManager.register(new crewx.gui.menu.MenuResources());
         crewx.gui.menu.SpaceBackground.preload();
         initializationComplete = true;

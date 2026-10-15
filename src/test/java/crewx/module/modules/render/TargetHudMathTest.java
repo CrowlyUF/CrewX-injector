@@ -27,7 +27,7 @@ public class TargetHudMathTest {
         }
         assertTrue("takes several frames (visible animation), got " + frames, frames > 20);
         assertTrue("but finishes within ~1.5 s, got " + frames, frames < 90);
-        assertEquals(12.0F, TargetHudMath.animateHealth(Float.NaN, 12.0F, 0.016F), 0.0F);
+        assertEquals(12.0F, TargetHudMath.animateHealth(Float.NaN, 12.0F, 0.016F), 0.0F);  // new target: no drain
     }
 
     @Test

@@ -1,11 +1,11 @@
 package crewx.gui.menu;
 
-
-
-
-
-
-
+/**
+ * Positions of the main-menu elements for a given screen size (pure maths, unit-tested). Proportions follow
+ * the reference: a large clock high up, the profile above a row of three round buttons near the bottom,
+ * and two small round buttons (options, quit) in the top-right corner. Everything scales with the screen
+ * height and shrinks the clock first when the screen is short.
+ */
 public final class MainMenuLayout {
     public final float clockTop;
     public final float clockCap;
@@ -25,7 +25,7 @@ public final class MainMenuLayout {
         this(width, height, fontHeight, 0.0F);
     }
 
-
+    /** @param minSpacing smallest centre-to-centre distance of the round buttons (labels must not touch) */
     public MainMenuLayout(float width, float height, float fontHeight, float minSpacing) {
         this.screenW = width;
         this.screenH = height;
@@ -47,7 +47,7 @@ public final class MainMenuLayout {
         this.clockTop = top;
         this.clockCap = cap;
 
-
+        // options / quit: a bit smaller than the main buttons, but comfortable to hit
         this.smallRadius = clamp(this.buttonRadius * 0.88F, 9.0F, 14.5F);
         float margin = 10.0F + this.smallRadius * 0.15F;
         this.smallCenterY = margin + this.smallRadius;
@@ -56,7 +56,7 @@ public final class MainMenuLayout {
         }
     }
 
-
+    /** Centre x of the i-th of {@code count} main buttons. */
     public float buttonCenterX(int index, int count) {
         return this.screenW / 2.0F + (index - (count - 1) / 2.0F) * this.buttonSpacing;
     }

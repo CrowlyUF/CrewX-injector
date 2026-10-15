@@ -14,7 +14,7 @@ public class RenderUtils {
         float b = (float) (color & 255) / 255.0F;
         float a = (float) (color >> 24 & 255) / 255.0F;
 
-
+        // through GlStateManager: raw GL toggles here left its cache out of date (see GlStateSync)
         GlStateManager.enableBlend();
         GlStateManager.disableTexture2D();
         GL11.glEnable(GL11.GL_LINE_SMOOTH);

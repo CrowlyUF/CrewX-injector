@@ -46,13 +46,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-
-
-
-
-
-
-
+/**
+ * Now-playing card (Spotify, SoundCloud, YouTube, any player) with synchronized lyrics underneath.
+ *
+ * This class only draws and handles the mouse; everything about finding the song lives in
+ * {@link MediaManager} (system media session + optional Spotify Web API) and the lyrics in
+ * {@code crewx.media.LyricsService}.
+ */
 public class MediaPlayer extends Module {
     private static final Minecraft MC = Minecraft.getMinecraft();
 
@@ -63,7 +63,7 @@ public class MediaPlayer extends Module {
     private static final int COLOR_GRAY_TEXT = 0xFF9C9CA1;
     private static final float CAP_HEIGHT = 17.0F * 0.42F;
     private static final float LYRIC_SOFT_EDGE = 12.0F;
-
+    /** The card is laid out on a 1006-unit-wide grid measured from the reference image. */
     private static final float GRID_WIDTH = 1006.0F;
     private static final float GRID_HEIGHT = 413.0F;
 
@@ -72,7 +72,7 @@ public class MediaPlayer extends Module {
     public final BooleanProperty lyricsBackground = new BooleanProperty("lyrics-background", false);
     public final IntProperty lyricsOffset = new IntProperty("lyrics-offset", 0, -3000, 3000);
     public final IntProperty cardWidth = new IntProperty("compact-width", 290, 180, 460);
-
+    /** Scales the whole card (cover, texts, bar, controls, lyrics) live; saved with the config. */
     public final PercentProperty cardSize = new PercentProperty("card-size", 100, 50, 200, null);
     public final BooleanProperty autoLogin = new BooleanProperty("auto-login", true);
     public final TextProperty clientId = new TextProperty("client-id", "");
@@ -82,16 +82,16 @@ public class MediaPlayer extends Module {
     public final IntProperty offsetY = new IntProperty("offset-y", 0, -2000, 2000);
 
     private final MediaManager media;
-
+    /** Default-on modules are enabled without onEnabled(); the detection starts on the first frame then. */
     private boolean mediaStarted;
     private long lastPlayingAt;
 
-
+    // cover texture
     private DynamicTexture dynamicArtwork;
     private ResourceLocation artworkTexture;
     private float artworkFade = 1.0F;
 
-
+    // smoothing / animation
     private long lastRenderAt;
     private double displayPos;
     private String displayPosKey = "";
@@ -99,7 +99,7 @@ public class MediaPlayer extends Module {
     private float waveTime;
     private String lyricsKey = "";
 
-
+    // lyrics: only the excerpt for the current moment is shown; the previous one fades out when it changes
     private LyricsTimeline timeline;
     private Lyrics timelineSource;
     private long timelineDuration = -1L;
@@ -107,12 +107,12 @@ public class MediaPlayer extends Module {
     private int lyricPrevious = -1;
     private float lyricTransition = 1.0F;
 
-
+    // lyric wrap cache
     private List<LyricLine> wrapSource;
     private float wrapWidthCached;
     private List<List<String>> wrapCache = new ArrayList<>();
 
-
+    // interaction (chat open): geometry from the last frame
     private boolean mouseWasDown;
     private boolean dragging;
     private float grabX;
@@ -133,7 +133,7 @@ public class MediaPlayer extends Module {
     private int hoveredButton;
 
     public MediaPlayer() {
-
+        // on by default and hidden from the array list: the card itself only shows up while music plays
         super("Media Player", true, true);
         File gameDir = MC.mcDataDir == null ? new File(".") : MC.mcDataDir;
         File configDir = new File(gameDir, "config/CrewX");
@@ -167,7 +167,7 @@ public class MediaPlayer extends Module {
         });
     }
 
-
+    // ------------------------------------------------------------------ public API (command / buttons)
 
     @Override
     public void onEnabled() {
@@ -225,7 +225,7 @@ public class MediaPlayer extends Module {
         return new String[]{this.source.getModeString()};
     }
 
-
+    // ------------------------------------------------------------------ rendering
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
@@ -241,7 +241,7 @@ public class MediaPlayer extends Module {
         if (current != null && current.playing) this.lastPlayingAt = nowMs;
         if (!MediaPlayerLayout.shouldShow(current != null, current != null && current.playing,
                 nowMs - this.lastPlayingAt, MC.currentScreen instanceof GuiChat)) {
-
+            // nothing playing: no card on screen (and nothing to click or drag)
             this.lastWidth = 0.0F;
             this.dragging = false;
             this.lastRenderAt = 0L;
@@ -296,7 +296,7 @@ public class MediaPlayer extends Module {
         float radius = 75.0F * u;
         float feather = clamp(width * 0.04F, 7.0F, 18.0F);
 
-
+        // soft frosted edge: blurred backdrop that fades out past the border, plus a faint shadow
         BackdropBlur.drawFeatheredHalo(x, y, width, height, radius, 22.0F, feather);
         for (int i = 5; i >= 1; i--) {
             float grow = feather * i / 5.0F;
@@ -306,10 +306,10 @@ public class MediaPlayer extends Module {
         RoundedUtils.drawRoundedOutlinedRect(x, y, width, height, 0x40FFFFFF,
                 radius * resolution.getScaleFactor() / 2.0F, 1.5F);
 
-
+        // ---- cover
         drawCover(x + 33.0F * u, y + 34.0F * u, 143.0F * u, info != null, dt);
 
-
+        // ---- title / artist / explicit badge
         boolean hasInfo = info != null;
         String title = hasInfo ? info.title : "Nothing playing";
         String artist = hasInfo ? info.artist : "Play something in Spotify, SoundCloud or your browser";
@@ -335,10 +335,10 @@ public class MediaPlayer extends Module {
         drawScaledText(fitText(artist, infoWidth, artistScale), infoX,
                 y + 127.0F * u - CAP_HEIGHT * artistScale * 0.5F, artistScale, COLOR_GRAY_TEXT);
 
-
+        // ---- animated "now playing" bars (top right)
         drawWaveform(x + 918.0F * u, y + 96.0F * u, u, hasInfo && info.playing, dt);
 
-
+        // ---- progress row
         float timeScale = Math.max(0.6F, 21.0F * u / CAP_HEIGHT);
         float timeCy = y + 224.0F * u;
         long duration = hasInfo ? info.durationMs : 0L;
@@ -366,7 +366,7 @@ public class MediaPlayer extends Module {
         this.barCy = timeCy;
         this.barHit = Math.max(barH, 40.0F * u) / 2.0F;
 
-
+        // ---- controls
         boolean canControl = hasInfo && info.canControl;
         this.controlsCy = y + 326.0F * u;
         this.controlsHit = 62.0F * u;
@@ -405,10 +405,6 @@ public class MediaPlayer extends Module {
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
         GlStateManager.color(1.0F, 1.0F, 1.0F, this.artworkFade);
         MC.getTextureManager().bindTexture(this.artworkTexture);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
         Tessellator tessellator = Tessellator.getInstance();
         WorldRenderer renderer = tessellator.getWorldRenderer();
         renderer.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX);
@@ -432,6 +428,12 @@ public class MediaPlayer extends Module {
             if (this.artworkTexture != null) crewx.util.DynamicTextures.release(this.artworkTexture);
             this.dynamicArtwork = new DynamicTexture(image);
             this.artworkTexture = MC.getTextureManager().getDynamicTextureLocation("crewx_media_cover", this.dynamicArtwork);
+            // filtering set once here, not on every draw (that can stall the driver)
+            MC.getTextureManager().bindTexture(this.artworkTexture);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
             this.artworkFade = 0.0F;
         } catch (Exception ignored) {
             this.artworkTexture = null;
@@ -454,8 +456,8 @@ public class MediaPlayer extends Module {
     }
 
     private void drawTriangle(float x1, float y1, float x2, float y2, float x3, float y3, int color) {
-        boolean culling = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        // no glIsEnabled here: a state query makes the CPU wait for the GPU (a hitch when it is busy)
+        GlStateManager.disableCull();
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
         GlStateManager.disableTexture2D();
@@ -467,10 +469,10 @@ public class MediaPlayer extends Module {
         GL11.glEnd();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.enableTexture2D();
-        if (culling) GL11.glEnable(GL11.GL_CULL_FACE);
+        GlStateManager.enableCull();   // the HUD draws with culling on
     }
 
-
+    /** Rewind / fast-forward glyph: two triangles side by side. */
     private void drawDoubleTriangle(float cx, float cy, float width, float height, boolean pointLeft, int color) {
         float half = width / 2.0F;
         float one = width / 2.0F;
@@ -493,8 +495,8 @@ public class MediaPlayer extends Module {
     }
 
     private void drawArc(float cx, float cy, float radius, float thickness, float fromDeg, float toDeg, int color) {
-        boolean culling = GL11.glIsEnabled(GL11.GL_CULL_FACE);
-        GL11.glDisable(GL11.GL_CULL_FACE);
+        // no glIsEnabled here: a state query makes the CPU wait for the GPU (a hitch when it is busy)
+        GlStateManager.disableCull();
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
         GlStateManager.disableTexture2D();
@@ -511,7 +513,7 @@ public class MediaPlayer extends Module {
         GL11.glEnd();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.enableTexture2D();
-        if (culling) GL11.glEnable(GL11.GL_CULL_FACE);
+        GlStateManager.enableCull();   // the HUD draws with culling on
     }
 
     private static void setColor(int color) {
@@ -519,12 +521,12 @@ public class MediaPlayer extends Module {
                 (color & 255) / 255.0F, ((color >>> 24) & 255) / 255.0F);
     }
 
+    // ------------------------------------------------------------------ position smoothing
 
-
-
-
-
-
+    /**
+     * Advances with the frame clock and is gently pulled towards the source's position, so the
+     * progress bar and the lyric sweep never jitter or run backwards between polls.
+     */
     private void updateDisplayPosition(float dt, MediaInfo info) {
         if (info == null) {
             this.displayPos = 0.0D;
@@ -546,7 +548,7 @@ public class MediaPlayer extends Module {
         this.displayPos = Math.max(0.0D, advanced);
     }
 
-
+    // ------------------------------------------------------------------ mouse (only while the chat is open)
 
     private void handleMouse(ScaledResolution resolution) {
         boolean chat = MC.currentScreen instanceof GuiChat;
@@ -601,13 +603,13 @@ public class MediaPlayer extends Module {
         return Math.abs(mouseX - centerX) <= this.controlsHit && Math.abs(mouseY - this.controlsCy) <= this.controlsHit;
     }
 
-
+    // ------------------------------------------------------------------ lyrics
 
     private static float lyricScale(float width) {
         return clamp(width * 0.0046F, 0.85F, 1.6F);
     }
 
-
+    /** Room for one excerpt: at most two wrapped rows. */
     private static float lyricsAreaHeight(float width) {
         float scale = lyricScale(width);
         float fontHeight = ClientFont.getHeight();
@@ -620,12 +622,12 @@ public class MediaPlayer extends Module {
         this.lyricTransition = 1.0F;
     }
 
-
-
-
-
-
-
+    /**
+     * One lyric excerpt under the card: the line for the current moment of the song, swept from dim grey to
+     * white in time with the music (a short purple/pink glow rides the leading edge). When the moment moves
+     * on, the old excerpt rises and fades while the new one fades in; nothing else is shown. Plain (untimed)
+     * lyrics are spread over the track and also shown one excerpt at a time.
+     */
     private void drawLyricsArea(float x, float top, float width, float height, float dt, long rawPosition) {
         Lyrics lyrics = this.media.getLyrics();
         float centerX = x + width * 0.5F;
@@ -676,7 +678,7 @@ public class MediaPlayer extends Module {
         int index = this.timeline.indexAt(position);
         if (index != this.lyricShown) {
             if (this.timeline.sameText(index, this.lyricShown)) {
-                this.lyricShown = index;
+                this.lyricShown = index;                 // a repeated line: keep it on screen, no animation
             } else {
                 this.lyricPrevious = this.lyricShown;
                 this.lyricShown = index;
@@ -703,7 +705,7 @@ public class MediaPlayer extends Module {
         drawExcerpt(list, index, front, centerX, top, scale, lineStep, wrapWidth, alpha, 0L, 0L);
     }
 
-
+    /** {@code front} = sweep front in font units; NaN = compute it from the playback position. */
     private void drawExcerpt(List<LyricLine> list, int index, float front, float centerX, float top, float scale,
                              float lineStep, float wrapWidth, float alpha, long position, long duration) {
         if (alpha <= 0.01F) return;
@@ -731,7 +733,7 @@ public class MediaPlayer extends Module {
         drawStyledText(fitted, centerX - noteWidth * 0.5F, top, scale, offset -> COLOR_LYRIC_DIM, 0.2F, 0x66000000);
     }
 
-
+    /** Dim -> purple -> pink -> white as the sweep front passes a glyph (front/offset in font units). */
     private static int lyricColor(float front, float offset, float alpha) {
         float u = (front - offset) / LYRIC_SOFT_EDGE;
         int color;
@@ -791,7 +793,7 @@ public class MediaPlayer extends Module {
         return result;
     }
 
-
+    // ------------------------------------------------------------------ text / math helpers
 
     private String fitText(String text, float maxWidth, float scale) {
         if (text == null || text.isEmpty() || maxWidth <= 0.0F) return "";

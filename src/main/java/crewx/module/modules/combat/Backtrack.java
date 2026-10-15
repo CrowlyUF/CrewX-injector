@@ -1,10 +1,10 @@
 package crewx.module.modules.combat;
 
-
-
-
-
-
+/*
+ * Adapted from LibreBounce Backtrack.
+ * Upstream: https://github.com/LibreBounce/LibreBounce/blob/main/src/main/java/net/ccbluex/liquidbounce/features/module/modules/combat/Backtrack.kt
+ * Copyright (c) CCBlueX contributors. Licensed under GPL-3.0.
+ */
 
 import net.minecraft.client.renderer.GlStateManager;
 import crewx.CrewX;
@@ -312,9 +312,9 @@ public class Backtrack extends Module {
                 .offset(-renderManager.getRenderPosX(), -renderManager.getRenderPosY(), -renderManager.getRenderPosZ());
         Color color = new Color(this.espColor.getValue() & 0xFFFFFF);
         RenderUtil.enableRenderState();
-        GlStateManager.color(color.getRed() / 255.0F, color.getGreen() / 255.0F, color.getBlue() / 255.0F, 1.0F);
-        RenderUtil.drawFilledBox(box, color.getRed(), color.getGreen(), color.getBlue());
-        RenderUtil.drawBoundingBox(box, color.getRed(), color.getGreen(), color.getBlue(), 220, 1.6F);
+        // the server-side position: soft gradient box with a glowing edge (same style as the 3D ESP)
+        RenderUtil.drawStyledBox(box, color.getRGB() & 0xFFFFFF, 0.24F, 0.04F, 1.6F);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         RenderUtil.disableRenderState();
     }
 
@@ -622,6 +622,7 @@ public class Backtrack extends Module {
         double oldLastY = entity.lastTickPosY;
         double oldLastZ = entity.lastTickPosZ;
         RenderUtil.enableRenderState();
+        double[] glCache = crewx.util.GlStateSync.snapshot();
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         try {
             if (wireframe) {
@@ -650,8 +651,8 @@ public class Backtrack extends Module {
             entity.lastTickPosY = oldLastY;
             entity.lastTickPosZ = oldLastZ;
             GL11.glPopAttrib();
-
-            crewx.util.GlStateSync.afterPopAttrib();
+            // the entity renderer changed GL state through GlStateManager inside the attrib block
+            crewx.util.GlStateSync.afterPopAttrib(glCache);
             RenderUtil.disableRenderState();
         }
     }

@@ -28,8 +28,7 @@ public final class RemapCrewToNotch {
 
         private boolean entitySubclass(String owner) {
             return owner.startsWith("net/minecraft/client/entity/")
-                    || owner.startsWith("net/minecraft/entity/player/")
-                    || "net/minecraft/entity/EntityLivingBase".equals(owner);
+                    || owner.startsWith("net/minecraft/entity/");
         }
 
         private boolean worldSubclass(String owner) {
@@ -40,6 +39,7 @@ public final class RemapCrewToNotch {
         private boolean crewGuiScreen(String owner) {
             return ("crewx/gui/ClickGui".equals(owner)
                     || "crewx/gui/CrewXMainMenu".equals(owner)
+                    || "crewx/gui/servers/CrewXServerSelector".equals(owner)
                     || owner.startsWith("crewx/accountmanager/gui/Gui"))
                     && !owner.contains("$");
         }
@@ -130,6 +130,13 @@ public final class RemapCrewToNotch {
             if (direct != null) return direct;
             String fromParents = inherited(namedOwner, name, fields);
             if (fromParents != null) return fromParents;
+            // The injectable remap has no game jar for hierarchy lookup. BlockBed
+            // inherits FACING from BlockDirectional, so a BlockBed.FACING reference
+            // must use the field name declared by that parent in the notch jar.
+            if ("net/minecraft/block/BlockBed".equals(namedOwner) && "FACING".equals(name)) {
+                String facing = fields.get("net/minecraft/block/BlockDirectional/FACING");
+                if (facing != null) return facing;
+            }
             if (crewGuiScreen(namedOwner)) {
                 String inherited = fields.get("net/minecraft/client/gui/GuiScreen/" + name);
                 if (inherited == null) {
@@ -169,6 +176,17 @@ public final class RemapCrewToNotch {
             }
             String fromParents = inherited(namedOwner, name + " " + descriptor, methods);
             if (fromParents != null) return fromParents;
+            if ("net/minecraft/util/BlockPos".equals(namedOwner)) {
+                String vectorMethod = methods.get("net/minecraft/util/Vec3i/"
+                        + name + " " + descriptor);
+                if (vectorMethod != null) return vectorMethod;
+            }
+            if ("net/minecraft/client/renderer/texture/DynamicTexture".equals(namedOwner)) {
+                String textureMethod = methods.get(
+                        "net/minecraft/client/renderer/texture/AbstractTexture/"
+                                + name + " " + descriptor);
+                if (textureMethod != null) return textureMethod;
+            }
             if (crewGuiScreen(namedOwner)) {
                 String override = methods.get("net/minecraft/client/gui/GuiScreen/"
                         + name + " " + descriptor);

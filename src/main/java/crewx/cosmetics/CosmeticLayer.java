@@ -2,6 +2,7 @@ package crewx.cosmetics;
 
 import crewx.CrewX;
 import crewx.module.modules.render.Accessories;
+import crewx.util.GlStateSync;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.model.ModelPlayer;
@@ -51,8 +52,21 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         int head = accessories.headwear.getValue();
         if (!wings && head == 0) return;
 
+        // glPushAttrib has a small, driver-dependent stack. If it is already full the push is ignored and the
+        // matching pop would restore somebody else's state (whole GUI/HUD flickering on some PCs): skip instead.
+        try {
+            if (GL11.glGetInteger(GL11.GL_ATTRIB_STACK_DEPTH) >= GL11.glGetInteger(GL11.GL_MAX_ATTRIB_STACK_DEPTH) - 1) return;
+        } catch (Throwable ignored) {
+            return;
+        }
+
         ModelPlayer model = this.renderer.getMainModel();
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_CURRENT_BIT | GL11.GL_LINE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        // GlStateManager caches the GL state; glPopAttrib changes the driver behind its back. Keep both in step.
+        double[] glCache = GlStateSync.snapshot();
+        GlStateManager.pushMatrix();
+        // Perspective renders the local player's layers before its own HUD. Restore texture bindings,
+        // active texture unit and depth/polygon state as well as the enable flags used by the accessories.
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -63,6 +77,8 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
             if (head > 0) this.renderHeadAccessory(player, model, head, scale);
         } finally {
             GL11.glPopAttrib();
+            GlStateSync.afterPopAttrib(glCache);
+            GlStateManager.popMatrix();   // postRender() transforms must not leak into the rest of the model/GUI
         }
     }
 
@@ -72,8 +88,8 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         for (int side : SIDES) {
             GlStateManager.pushMatrix();
             try {
-
-
+                // The torso's back face is at roughly +2 model units; move the wing roots
+                // past that plane so the membranes and ribs do not render inside the player.
                 GlStateManager.translate(side * 2.1F * scale, 3.0F * scale, 2.7F * scale);
                 GlStateManager.rotate(-side * (9.0F + flap), 0.0F, 0.0F, 1.0F);
                 GlStateManager.rotate(side * 7.0F, 0.0F, 1.0F, 0.0F);
@@ -211,7 +227,7 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         GlStateManager.pushMatrix();
         try {
             model.bipedHeadwear.postRender(scale);
-
+            // Keep every style outside the skin and helmet volume.
             GlStateManager.translate(0.0F, -1.15F * scale, 0.0F);
             GlStateManager.scale(scale, scale, scale);
             switch (style) {
@@ -229,7 +245,7 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
         }
     }
 
-
+    /** Broad, tapered straw hat with radial weave detail rather than stacked block layers. */
     private void drawStrawHat() {
         this.drawStrawBrim();
         this.drawStrawCone();
@@ -365,7 +381,7 @@ public final class CosmeticLayer implements LayerRenderer<AbstractClientPlayer> 
 
     private void drawHalo() {
         GL11.glEnable(GL11.GL_LINE_SMOOTH);
-
+        // Raised subtly above the previous placement; concentric translucent strokes form the glow.
         this.drawHaloRing(4.8F, -11.05F, 6.0F, 0x20FFD057);
         this.drawHaloRing(4.67F, -11.12F, 3.5F, 0x55FFD66A);
         this.drawHaloRing(4.56F, -11.18F, 1.7F, 0xFFFFE6A1);

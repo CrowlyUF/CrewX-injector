@@ -14,7 +14,7 @@ import java.io.InputStream;
 import java.util.EnumMap;
 import java.util.Map;
 
-
+/** Draws the shared category pictograms used by the Click GUI and HUD ArrayList. */
 public final class CategoryIconRenderer {
     private static final Minecraft MC = Minecraft.getMinecraft();
     private static final Map<ModuleCategory, ResourceLocation> TEXTURES =
@@ -30,6 +30,7 @@ public final class CategoryIconRenderer {
         ResourceLocation texture = loadTexture(category);
         if (texture == null) return;
         int pixelSize = Math.max(1, Math.round(size));
+        long timed = crewx.util.HitchMonitor.start();
         GlStateManager.pushMatrix();
         GlStateManager.enableTexture2D();
         GlStateManager.enableAlpha();
@@ -43,9 +44,10 @@ public final class CategoryIconRenderer {
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.disableBlend();
         GlStateManager.popMatrix();
+        crewx.util.HitchMonitor.section("icons", timed);
     }
 
-
+    /** GL names of the category icons loaded so far (for the ClickGUI texture self-check). */
     static void collectTextureIds(java.util.Set<Integer> out) {
         for (ResourceLocation location : TEXTURES.values()) {
             net.minecraft.client.renderer.texture.ITextureObject texture = MC.getTextureManager().getTexture(location);
@@ -62,8 +64,10 @@ public final class CategoryIconRenderer {
             if (stream == null) return null;
             BufferedImage image = ImageIO.read(stream);
             if (image == null) return null;
+            DynamicTexture object = new DynamicTexture(image);
             ResourceLocation texture = MC.getTextureManager().getDynamicTextureLocation(
-                    "crewx_category_icon_" + name, new DynamicTexture(image));
+                    "crewx_category_icon_" + name, object);
+            crewx.util.TextureGuard.watch(texture, object, image.getWidth(), image.getHeight(), true);
             MC.getTextureManager().bindTexture(texture);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);

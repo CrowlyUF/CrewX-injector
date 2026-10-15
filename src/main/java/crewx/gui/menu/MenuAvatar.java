@@ -14,11 +14,11 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
 
-
-
-
-
-
+/**
+ * Player faces for the menus, drawn as a textured rounded polygon (a circle when the radius is half the size),
+ * so they get the shape without stencil buffers or extra shaders. Uses the same skin sources as the
+ * Alt Manager: Mush heads for cracked accounts with a known skin, the account's real skin otherwise.
+ */
 public final class MenuAvatar {
     private static final int SEGMENTS_PER_CORNER = 10;
 
@@ -48,7 +48,7 @@ public final class MenuAvatar {
         face(skin, x, y, size, radius, alpha, 40.0F / 64.0F, 8.0F / 64.0F, 48.0F / 64.0F, 16.0F / 64.0F);
     }
 
-
+    /** A whole square texture (server icon...) drawn with rounded corners. */
     public static void drawRoundedTexture(ResourceLocation texture, float x, float y, float size, float radius, float alpha) {
         face(texture, x, y, size, radius, alpha, 0.0F, 0.0F, 1.0F, 1.0F);
     }

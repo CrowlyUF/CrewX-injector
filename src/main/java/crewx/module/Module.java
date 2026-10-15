@@ -36,8 +36,13 @@ public abstract class Module {
         return this.name;
     }
 
+    /** The package never changes: worked out once (this is asked for every module, every frame, by the HUD). */
+    private ModuleCategory category;
+
     public ModuleCategory getCategory() {
-        return ModuleCategory.fromPackage(this.getClass().getPackage().getName());
+        ModuleCategory cached = this.category;
+        if (cached == null) this.category = cached = ModuleCategory.fromPackage(this.getClass().getPackage().getName());
+        return cached;
     }
 
     public String formatModule() {

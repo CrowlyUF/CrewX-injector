@@ -21,7 +21,7 @@ public class LyricsTimelineTest {
     @Test
     public void syncedShowsExactlyTheLineForTheCurrentMoment() {
         LyricsTimeline t = LyricsTimeline.of(synced("[00:10.00] first\n[00:14.50] second\n[00:20.00] third"), 60000L);
-        assertEquals(-1, t.indexAt(9000L));
+        assertEquals(-1, t.indexAt(9000L));                // intro: nothing yet
         assertEquals("first", t.lines().get(t.indexAt(10000L)).text);
         assertEquals("first", t.lines().get(t.indexAt(14499L)).text);
         assertEquals("second", t.lines().get(t.indexAt(14500L)).text);
@@ -33,7 +33,7 @@ public class LyricsTimelineTest {
     public void longInstrumentalGapHidesTheFinishedLine() {
         LyricsTimeline t = LyricsTimeline.of(synced("[00:10.00] hi\n[01:00.00] back"), 120000L);
         assertEquals(0, t.indexAt(12000L));
-        assertEquals(-1, t.indexAt(30000L));
+        assertEquals(-1, t.indexAt(30000L));                // long break: no stale line on screen
         assertEquals(1, t.indexAt(60000L));
     }
 
@@ -41,8 +41,8 @@ public class LyricsTimelineTest {
     public void syncedRepeatsKeepTheirTimestampsAndAreRecognisedAsSameText() {
         LyricsTimeline t = LyricsTimeline.of(synced("[00:10.00] la la\n[00:30.00] La  la\n[00:40.00] end"), 60000L);
         assertEquals(3, t.lines().size());
-        assertEquals(1, t.indexAt(31000L));
-        assertTrue(t.sameText(0, 1));
+        assertEquals(1, t.indexAt(31000L));                 // the repeat is current while it is sung
+        assertTrue(t.sameText(0, 1));                       // so the card does not animate a "new" line
         assertFalse(t.sameText(1, 2));
     }
 
@@ -58,14 +58,14 @@ public class LyricsTimelineTest {
     public void plainLyricsAreShownOneLineAtATimeAcrossTheSong() {
         LyricsTimeline t = LyricsTimeline.of(plain("one\ntwo\nthree\nfour"), 100000L);
         assertTrue(t.isEstimated());
-        assertEquals(-1, t.indexAt(1000L));
+        assertEquals(-1, t.indexAt(1000L));                 // intro
         int last = -1;
         for (long ms = 8000L; ms <= 92000L; ms += 500L) {
             int index = t.indexAt(ms);
             assertTrue("never jumps back or skips", index == last || index == last + 1);
             last = index;
         }
-        assertEquals(3, last);
+        assertEquals(3, last);                              // every line was shown, the last one near the end
         assertEquals(1.0F, t.progress(2, 50000L, 100000L), 0.0F);
     }
 
@@ -90,9 +90,9 @@ public class LyricsTimelineTest {
 
     @Test
     public void placeholderLyricsFromLrclibAreRejected() {
-        assertFalse(LyricsService.plausible(1, 214.0D));
+        assertFalse(LyricsService.plausible(1, 214.0D));   // "[00:00.00]probe" on a 3.5 min song
         assertFalse(LyricsService.plausible(0, 30.0D));
-        assertTrue(LyricsService.plausible(1, 45.0D));
+        assertTrue(LyricsService.plausible(1, 45.0D));     // a short jingle may really have one line
         assertTrue(LyricsService.plausible(40, 214.0D));
     }
 }

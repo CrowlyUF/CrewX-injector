@@ -1,18 +1,18 @@
 package crewx.media;
 
-
+/** Immutable snapshot of what is playing. Positions are extrapolated with {@link #positionNow()}. */
 public final class MediaInfo {
     public final String key;
     public final String title;
     public final String artist;
     public final String album;
-
+    /** http(s) URL, "file:" path written by a backend, or empty. */
     public final String artworkUrl;
-
+    /** Human-readable origin ("Spotify", "Chrome", ...). */
     public final String source;
     public final long durationMs;
     public final long positionMs;
-
+    /** System.currentTimeMillis() at which {@link #positionMs} was valid. */
     public final long capturedAt;
     public final boolean playing;
     public final boolean explicit;
@@ -79,7 +79,7 @@ public final class MediaInfo {
         public boolean canControl = true;
         public boolean canSeek;
 
-
+        /** Sets play state and re-anchors the position to "now". */
         public Builder playing(boolean playing, long positionMs) {
             this.playing = playing;
             this.positionMs = positionMs;

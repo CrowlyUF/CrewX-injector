@@ -3,7 +3,7 @@ package crewx.media;
 import java.util.Collections;
 import java.util.List;
 
-
+/** Result of a lyrics lookup for one track. */
 public final class Lyrics {
     public enum State { LOADING, FOUND, NOT_FOUND, INSTRUMENTAL, ERROR }
 

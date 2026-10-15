@@ -21,20 +21,20 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
-
-
-
-
+/**
+ * Windows: a hidden, long-lived PowerShell process reads GlobalSystemMediaTransportControls
+ * (Spotify, SoundCloud/YouTube/anything in Chrome/Edge/Firefox, VLC, ...) - no account or login needed.
+ */
 public final class WindowsMediaBackend implements MediaBackend {
     private static final String SCRIPT_RESOURCE = "/assets/crewx/media/smtc.ps1";
     private static final int MAX_RESTARTS = 5;
-
+    /** Optional override of the PowerShell executable (e.g. a pwsh.exe path). */
     private static final String EXECUTABLE_PROPERTY = "crewx.media.powershell";
 
     private final File directory;
     private final JsonParser parser = new JsonParser();
     private volatile boolean running;
-
+    /** Bumped on every start/stop so a helper loop from an earlier start can never keep running. */
     private volatile int generation;
     private volatile Process process;
     private volatile BufferedWriter stdin;
@@ -138,7 +138,7 @@ public final class WindowsMediaBackend implements MediaBackend {
                 }
             }
             synchronized (this) {
-
+                // only clear what this loop owns; a newer start() may already have its own helper running
                 if (started != null && this.process == started) {
                     this.process = null;
                     this.stdin = null;
@@ -150,7 +150,7 @@ public final class WindowsMediaBackend implements MediaBackend {
             if (System.currentTimeMillis() - startedAt > 60000L) failures = 0;
             failures++;
             if (failures > MAX_RESTARTS) {
-
+                // the module stays "on" but idle; toggling it (stop + start) gives the helper a fresh set of retries
                 synchronized (this) {
                     if (this.generation == myGeneration) this.running = false;
                 }
@@ -200,7 +200,7 @@ public final class WindowsMediaBackend implements MediaBackend {
         }
     }
 
-
+    /** powershell.exe from the Windows directory (works even when PATH is broken), or an explicit override. */
     private static String powershellExecutable() {
         String override = System.getProperty(EXECUTABLE_PROPERTY, "").trim();
         if (!override.isEmpty()) return override;
@@ -212,10 +212,10 @@ public final class WindowsMediaBackend implements MediaBackend {
         return "powershell.exe";
     }
 
-
-
-
-
+    /**
+     * The helper writes every cover version to its own file (cover.img.1, cover.img.2, ...) and reports it in
+     * "artFile", so the game never reads a half-written file. Older helpers only sent a version number.
+     */
     static String artworkUrl(JsonObject json, File thumb) {
         String file = str(json, "artFile", "");
         if (!file.isEmpty()) return new File(file).isFile() ? "file:" + file : "";
@@ -233,7 +233,7 @@ public final class WindowsMediaBackend implements MediaBackend {
             int read;
             while ((read = in.read(chunk)) != -1) buffer.write(chunk, 0, read);
             byte[] bytes = buffer.toByteArray();
-
+            // Windows PowerShell 5.1 reads BOM-less files as ANSI; add a UTF-8 BOM so any non-ASCII is safe.
             try (FileOutputStream out = new FileOutputStream(script)) {
                 out.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
                 out.write(bytes);
@@ -247,7 +247,7 @@ public final class WindowsMediaBackend implements MediaBackend {
             byte[] sink = new byte[1024];
             try {
                 while (stream.read(sink) != -1) {
-
+                    // discard
                 }
             } catch (IOException ignored) {
             }

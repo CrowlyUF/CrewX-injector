@@ -156,8 +156,15 @@ public final class EventManager {
     private static void invoke(MethodData data, Event argument) {
         try {
             if (AUDIT) CrewXAudit.handler(data.getSource(), data.getTarget(), argument);
-            data.getTarget().invoke(data.getSource(), argument);
-        } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+            if (crewx.util.HitchMonitor.isEnabled()) {
+                long start = System.nanoTime();
+                data.call(argument);
+                crewx.util.HitchMonitor.handler(data, System.nanoTime() - start);
+            } else {
+                data.call(argument);
+            }
+        } catch (Exception e) {
+            // as before: whatever a handler throws arrives wrapped by Method.invoke and is logged once
             if (AUDIT) CrewXAudit.failure(data.getSource(), data.getTarget(), e);
             Throwable cause = e instanceof InvocationTargetException && e.getCause() != null
                     ? e.getCause() : e;
@@ -171,15 +178,48 @@ public final class EventManager {
         }
     }
 
+    private static final ThreadLocal<Object[]> ARGS = new ThreadLocal<Object[]>() {
+        @Override
+        protected Object[] initialValue() {
+            return new Object[1];
+        }
+    };
+
     private static final class MethodData {
         private final Object source;
         private final Method target;
         private final byte priority;
 
+        private String label;
+
         public MethodData(Object source, Method target, byte priority) {
             this.source = source;
             this.target = target;
             this.priority = priority;
+        }
+
+        /**
+         * Method.invoke(source, event) builds a new argument array for every call of every handler, every frame;
+         * passing a reused one-element array allocates nothing. Reflection unpacks the array before the handler
+         * runs, so a nested event dispatched from inside a handler may safely reuse it; one array per thread
+         * because packet events arrive on the network thread.
+         */
+        void call(Event argument) throws Exception {
+            Object[] args = ARGS.get();
+            args[0] = argument;
+            try {
+                this.target.invoke(this.source, args);
+            } finally {
+                args[0] = null;
+            }
+        }
+
+        /** "Module.method", for the hitch report. */
+        @Override
+        public String toString() {
+            String text = this.label;
+            if (text == null) this.label = text = this.source.getClass().getSimpleName() + "." + this.target.getName();
+            return text;
         }
 
         public Object getSource() {

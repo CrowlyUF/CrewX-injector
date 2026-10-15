@@ -25,7 +25,7 @@ public class Config {
     private static boolean autoSaveReady;
     private static long dirtyAt;
 
-
+    /** Keep the active on-disk config unchanged while modules are stopped for unload. */
     public static void suspendAutoSave() {
         autoSaveReady = false;
         dirtyAt = 0L;
@@ -45,7 +45,7 @@ public class Config {
             String name = new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8).trim();
             if (validName(name) && new File(directory(), name + ".json").isFile()) return name;
         } catch (IOException ignored) {
-
+            // Existing installations have no marker; keep their default config.
         }
         return "default";
     }
@@ -63,7 +63,7 @@ public class Config {
         if (autoSaveReady && !loading) dirtyAt = System.currentTimeMillis();
     }
 
-
+    /** Flush on the client thread, after slider edits have settled. */
     public static void flushPending() {
         if (!autoSaveReady || loading || dirtyAt == 0L
                 || System.currentTimeMillis() - dirtyAt < 300L) return;
@@ -74,8 +74,8 @@ public class Config {
     public Config(String name, boolean newConfig) {
         this.name = "!".equals(name) ? "default" : name;
         if (!validName(this.name)) throw new IllegalArgumentException("Invalid config name");
-
-
+        // The injected process may start from the launcher's directory, not --gameDir.
+        // Resolve the same CrewX config folder used by the normal Minecraft client.
         this.file = new File(directory(), String.format("%s.json", this.name));
         try {
             file.getParentFile().mkdirs();

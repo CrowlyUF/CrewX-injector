@@ -67,8 +67,8 @@ public final class GuiRender {
         int a = (int) (original * factor);
         if (a < 0) a = 0;
         if (a > 255) a = 255;
-
-
+        // the fonts follow Minecraft's rule "alpha below 4 means opaque": a fading colour must never get there,
+        // or text flashes fully opaque on the first frame of every fade-in (4/255 is invisible anyway)
         if (a < 4 && original >= 4) a = 4;
         return a << 24 | (argb & 0xFFFFFF);
     }
@@ -330,7 +330,7 @@ public final class GuiRender {
             }
             return sb.append("..").toString();
         }
-
+        // plain text: one pass over the glyph widths
         float dots = ClientFont.getStringWidthFloat("..");
         float used = 0.0F;
         int end = 0;

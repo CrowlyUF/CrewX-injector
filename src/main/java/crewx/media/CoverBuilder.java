@@ -10,7 +10,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 
-
+/** Loads cover art from http(s) / file locations and bakes smooth rounded corners into it. */
 public final class CoverBuilder {
     public static final int TEXTURE_SIZE = 192;
     public static final float RADIUS_RATIO = 0.18F;
@@ -36,17 +36,17 @@ public final class CoverBuilder {
         return image;
     }
 
-
-
-
-
+    /**
+     * Spotify's Linux client reports covers as https://open.spotify.com/image/&lt;id&gt;, a page that does not
+     * serve the picture; the same id lives on the i.scdn.co image CDN.
+     */
     static String normalizeUrl(String url) {
         String prefix = "https://open.spotify.com/image/";
         if (url.startsWith(prefix)) return "https://i.scdn.co/image/" + url.substring(prefix.length());
         return url;
     }
 
-
+    /** Windows Spotify sometimes wraps the square cover in a black 300px tile with its wordmark below. */
     static BufferedImage extractSpotifyArtwork(BufferedImage source) {
         int width = source.getWidth();
         int height = source.getHeight();
@@ -74,7 +74,7 @@ public final class CoverBuilder {
                 bottomSamples++;
             }
         }
-
+        // Requiring both black side gutters and a white mark on a black footer avoids cropping normal albums.
         if (darkSides * 100 < sideSamples * 90 || darkBottom * 100 < bottomSamples * 70
                 || lightBottom * 100 < bottomSamples * 3) return source;
         return source.getSubimage(margin, 0, side, side);
@@ -91,7 +91,7 @@ public final class CoverBuilder {
         return r > 180 && g > 180 && b > 180 && Math.max(r, Math.max(g, b)) - Math.min(r, Math.min(g, b)) < 35;
     }
 
-
+    /** Centre-crops to a square, downsamples in steps (no aliasing) and masks rounded corners. */
     public static BufferedImage buildRounded(BufferedImage source) {
         final int target = TEXTURE_SIZE;
         int side = Math.min(source.getWidth(), source.getHeight());

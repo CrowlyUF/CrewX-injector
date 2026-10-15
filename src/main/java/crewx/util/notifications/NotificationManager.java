@@ -41,7 +41,7 @@ public class NotificationManager {
 
     public void post(String header, String subtext, long displayTime, NotificationType type) {
         if (isToggle(header)) {
-
+            // a module toggled again replaces its previous card instead of stacking a second one
             for (INotification not : notifications) {
                 if (isToggle(not.getHeader()) && not.getSubtext().equals(subtext)) notifications.remove(not);
             }

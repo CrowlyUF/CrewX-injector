@@ -6,15 +6,15 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.function.Predicate;
 
-
-
-
-
-
+/**
+ * Generates plausible player names for a new offline (cracked) alt: a first name with a number, in a few
+ * styles players actually use ("Pedro7319", "lucas_2846", "RafaSilva27", "Bruno2009"...). Pure Java, so it is
+ * unit-tested; it only produces a name - adding the account is up to the Alt Manager.
+ */
 public final class RandomAltName {
     public static final int MAX_LENGTH = 16;
     private static final int MAX_ATTEMPTS = 64;
-
+    /** First names used recently are skipped, so consecutive clicks do not repeat the same name. */
     private static final int RECENT_NAMES = 24;
 
     static final String[] FIRST_NAMES = {
@@ -50,10 +50,10 @@ public final class RandomAltName {
         this.random = random;
     }
 
-
-
-
-
+    /**
+     * A new name that {@code taken} does not reject (e.g. names already in the Alt Manager), or null if none was
+     * found after a number of attempts.
+     */
     public String next(Predicate<String> taken) {
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             String name = candidate();
@@ -64,7 +64,7 @@ public final class RandomAltName {
         return null;
     }
 
-
+    /** Minecraft rules: 3-16 characters, letters, digits and underscore. */
     public static boolean isValid(String name) {
         return name != null && name.length() >= 3 && name.length() <= MAX_LENGTH && name.matches("[A-Za-z0-9_]+");
     }
@@ -74,22 +74,22 @@ public final class RandomAltName {
         int style = this.random.nextInt(100);
         String name;
         if (style < 50) {
-            name = first + digits(4);
+            name = first + digits(4);                                   // Pedro7319
         } else if (style < 62) {
-            name = first + digits(2 + this.random.nextInt(2));
+            name = first + digits(2 + this.random.nextInt(2));          // Lucas284
         } else if (style < 72) {
-            name = first.toLowerCase(Locale.ROOT) + "_" + digits(2 + this.random.nextInt(3));
+            name = first.toLowerCase(Locale.ROOT) + "_" + digits(2 + this.random.nextInt(3));   // lucas_2846
         } else if (style < 82) {
-            name = first + pick(SURNAMES) + digits(2);
+            name = first + pick(SURNAMES) + digits(2);                  // JoaoSilva27
         } else if (style < 91) {
-            name = first + (1996 + this.random.nextInt(16));
+            name = first + (1996 + this.random.nextInt(16));            // Bruno2009
         } else {
-            name = pickFresh(SHORT_NAMES) + digits(3 + this.random.nextInt(2));
+            name = pickFresh(SHORT_NAMES) + digits(3 + this.random.nextInt(2));   // Rafa4821
         }
         return ascii(name);
     }
 
-
+    /** Digits that do not look generated on purpose: no 0000, 1234 or 9876 runs and no leading zero. */
     String digits(int count) {
         while (true) {
             StringBuilder out = new StringBuilder(count);
@@ -133,7 +133,7 @@ public final class RandomAltName {
         while (this.recent.size() > RECENT_NAMES) this.recent.removeFirst();
     }
 
-
+    /** The name part a candidate was built from ("lucas_2846" -> "Lucas"), for the recent-names memory. */
     private static String baseOf(String name) {
         String letters = name.replaceAll("[^A-Za-z].*$", "");
         for (String[] pool : new String[][]{FIRST_NAMES, SHORT_NAMES}) {
@@ -145,7 +145,7 @@ public final class RandomAltName {
         return letters;
     }
 
-
+    /** Usernames are ASCII only: strip accents ("Cau\u00e3" -> "Caua"). */
     static String ascii(String value) {
         String normalized = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD);
         return normalized.replaceAll("[^A-Za-z0-9_]", "");

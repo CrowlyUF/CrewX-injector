@@ -717,23 +717,24 @@ public class CrewXServerSelector extends GuiScreen {
         }
         if (encoded == null) {
             row.icon = null;
+            crewx.util.TextureGuard.forget(row.iconLocation);
             return;
         }
         try {
             byte[] bytes = java.util.Base64.getMimeDecoder().decode(encoded);
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
             if (image == null || image.getWidth() != 64 || image.getHeight() != 64) throw new IOException("icon must be 64x64");
-            if (row.icon == null) {
-                ITextureObject existing = this.mc.getTextureManager().getTexture(row.iconLocation);
-                if (existing instanceof DynamicTexture) {
-                    row.icon = (DynamicTexture) existing;
-                } else {
-                    row.icon = new DynamicTexture(64, 64);
-                    this.mc.getTextureManager().loadTexture(row.iconLocation, row.icon);
-                }
+            ITextureObject existing = this.mc.getTextureManager().getTexture(row.iconLocation);
+            if (existing instanceof DynamicTexture
+                    && existing != net.minecraft.client.renderer.texture.TextureUtil.missingTexture) {
+                row.icon = (DynamicTexture) existing;
+            } else {
+                row.icon = new DynamicTexture(64, 64);
+                this.mc.getTextureManager().loadTexture(row.iconLocation, row.icon);
             }
             image.getRGB(0, 0, 64, 64, row.icon.getTextureData(), 0, 64);
             row.icon.updateDynamicTexture();
+            crewx.util.TextureGuard.watch(row.iconLocation, row.icon, 64, 64, false);
             if (!row.lan) this.servers.saveServerList();
         } catch (Throwable invalid) {
             row.data.setBase64EncodedIconData(null);

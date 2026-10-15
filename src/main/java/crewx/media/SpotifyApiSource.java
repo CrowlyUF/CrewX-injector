@@ -27,22 +27,22 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-
-
-
-
-
-
-
-
+/**
+ * Spotify Web API source (OAuth Authorization Code + PKCE, no client secret).
+ *
+ * Optional complement to {@link SystemMediaSource}: it sees playback on other devices (phone, speaker)
+ * and gives exact cover art / explicit flag. Note: a Client ID in Spotify "Development Mode" only works
+ * for up to 5 allow-listed accounts; everybody else gets HTTP 403, in which case this source switches
+ * itself off and the system source keeps working.
+ */
 public final class SpotifyApiSource implements MediaSource {
-
+    /** Put the Client ID of the Spotify app you registered here (see docs/media-setup.md). */
     public static final String BUILTIN_CLIENT_ID = "";
 
     private static final String API = "https://api.spotify.com/v1";
     private static final String TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
     private static final String SCOPES = "user-read-currently-playing user-modify-playback-state";
-
+    /** Register ALL of these as Redirect URIs in the Spotify dashboard. */
     public static final int[] CALLBACK_PORTS = {8888, 8889, 8890};
     private static final int TIMEOUT = 8000;
 
@@ -105,7 +105,7 @@ public final class SpotifyApiSource implements MediaSource {
         this.pollTask = null;
     }
 
-
+    /** Only polls the API while active (saves quota when the system source already knows the track). */
     public void setActive(boolean active) {
         if (this.active == active) return;
         this.active = active;
@@ -161,9 +161,9 @@ public final class SpotifyApiSource implements MediaSource {
         scheduleNext(0L);
     }
 
+    // ------------------------------------------------------------------ OAuth
 
-
-
+    /** Opens the browser so the user can approve access. Safe to call repeatedly. */
     public synchronized void connect() {
         if (this.oauthInProgress) return;
         final String id = clientId();
@@ -239,14 +239,14 @@ public final class SpotifyApiSource implements MediaSource {
         }
     }
 
-
+    /** @return true when the flow is finished (success, denial or error), false to keep listening. */
     private boolean handleCallback(Socket socket, String id, String redirect, String verifier, String state) throws Exception {
         socket.setSoTimeout(8000);
         BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         String requestLine = reader.readLine();
         String header;
         while ((header = reader.readLine()) != null && !header.isEmpty()) {
-
+            // headers are not needed
         }
         String target = requestLine == null ? "/" : requestLine.split(" ")[1];
         if (!target.startsWith("/callback")) {
@@ -321,7 +321,7 @@ public final class SpotifyApiSource implements MediaSource {
             HttpUtil.Result result = HttpUtil.request(TOKEN_ENDPOINT, "POST", form, null,
                     "application/x-www-form-urlencoded", null, TIMEOUT);
             if (result.code == 400 || result.code == 401) {
-
+                // refresh token revoked / belongs to another Client ID: the user must authorize again
                 this.refreshToken = null;
                 this.accessToken = null;
                 saveTokens();
@@ -342,15 +342,15 @@ public final class SpotifyApiSource implements MediaSource {
         this.accessTokenExpiresAt = 0L;
         this.lastInfo = null;
         this.blocked = false;
-        this.declined = true;
-        saveTokens();
+        this.declined = true; // do not auto-open the browser again until the user asks
+        saveTokens(); // rewrites the file without tokens but with declined=true
         setStatus("Not connected");
         Listener current = this.listener;
         if (current != null) current.onMedia(this, null);
         this.notifier.chat("&aSpotify disconnected. Local tokens removed.&r");
     }
 
-
+    // ------------------------------------------------------------------ polling
 
     private void pollOnce() {
         long next;
@@ -425,7 +425,7 @@ public final class SpotifyApiSource implements MediaSource {
         setStatus(message);
         MediaInfo last = this.lastInfo;
         if (last != null && this.errorStreak >= 4 && last.playing) {
-
+            // can't confirm playback any more: freeze the card instead of running forever
             MediaInfo frozen = last.toBuilder().playing(false, last.positionNow()).build();
             this.lastInfo = frozen;
             Listener current = this.listener;
@@ -481,7 +481,7 @@ public final class SpotifyApiSource implements MediaSource {
         return 5000L;
     }
 
-
+    // ------------------------------------------------------------------ controls
 
     @Override
     public void control(MediaAction action, long argument) {
@@ -526,7 +526,7 @@ public final class SpotifyApiSource implements MediaSource {
         });
     }
 
-
+    // ------------------------------------------------------------------ storage / json helpers
 
     private void loadTokens() {
         if (!this.authFile.isFile()) return;

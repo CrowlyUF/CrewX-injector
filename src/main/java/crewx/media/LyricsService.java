@@ -16,11 +16,11 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-
-
-
-
-
+/**
+ * Finds synchronized lyrics on LRCLIB. Strategy: exact-match endpoint with progressively cleaner
+ * metadata, then the search endpoint ranked by title/artist/duration. Results are cached in memory and
+ * on disk, lookups never block the render thread, and stale results for a previous track are dropped.
+ */
 public final class LyricsService {
     private static final String BASE = "https://lrclib.net/api";
     private static final int TIMEOUT = 6000;
@@ -56,7 +56,7 @@ public final class LyricsService {
         this.executor.shutdownNow();
     }
 
-
+    /** Starts (or reuses) the lookup for the given track. */
     public void request(MediaInfo info) {
         if (info == null) {
             this.wantedKey = "";
@@ -127,7 +127,7 @@ public final class LyricsService {
                     boolean plain = !string(item, "plainLyrics").isEmpty();
                     boolean instrumental = bool(item, "instrumental");
                     if (!synced && !plain && !instrumental) continue;
-                    if (!instrumental && fromJson(key, item) == null) continue;
+                    if (!instrumental && fromJson(key, item) == null) continue;   // placeholder submission
                     int score = query.score(string(item, "trackName"), string(item, "artistName"),
                             Math.round(number(item, "duration")), synced);
                     if (score > bestScore) {
@@ -163,7 +163,7 @@ public final class LyricsService {
         return urls;
     }
 
-
+    /** One retry on transient failures; 404 means "not found" (null). */
     private JsonObject fetchObject(String url) throws IOException {
         String body = fetchBody(url);
         return body == null ? null : this.parser.parse(body).getAsJsonObject();
@@ -219,17 +219,17 @@ public final class LyricsService {
         return null;
     }
 
-
-
-
-
-
+    /**
+     * LRCLIB is crowd-sourced and has placeholder submissions (e.g. "[00:00.00]probe" as the exact match for
+     * well-known songs). A song longer than a minute with fewer than 3 lines is treated as one of those, so
+     * the lookup moves on to the next candidate instead of showing it.
+     */
     static boolean plausible(int lineCount, double durationSeconds) {
         if (lineCount <= 0) return false;
         return lineCount >= 3 || durationSeconds <= 60.0D;
     }
 
-
+    // ---- disk cache -------------------------------------------------------------------------
 
     private File cacheFile(String cacheKey) {
         return new File(this.cacheDir, HttpUtil.sha1(cacheKey) + ".json");

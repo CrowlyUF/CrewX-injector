@@ -82,8 +82,6 @@ public final class ClickGuiFontRenderer {
         }
         if (!hasVisibleGlyph) return;
         MC.getTextureManager().bindTexture(fontTexture);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
         GlStateManager.enableTexture2D();
         GlStateManager.enableAlpha();
         GlStateManager.enableBlend();
@@ -130,15 +128,15 @@ public final class ClickGuiFontRenderer {
         GlStateManager.disableBlend();
     }
 
-
+    /** Colour of a glyph edge, given its horizontal offset (in unscaled font units) from the start of the string. */
     public interface GlyphColor {
         int colorAt(float offset);
     }
 
-
-
-
-
+    /**
+     * Draws text in one batch with a per-vertex colour (gradients / karaoke sweeps), an optional
+     * drop shadow and an optional faux-bold pass. Colours are ARGB; alpha is honoured as given.
+     */
     public void drawStringStyled(String text, float x, float y, GlyphColor color,
                                  float boldOffset, int shadowColor, float shadowOffset) {
         if (text == null || text.isEmpty() || color == null) return;
@@ -149,8 +147,6 @@ public final class ClickGuiFontRenderer {
             return;
         }
         MC.getTextureManager().bindTexture(fontTexture);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
         GlStateManager.enableTexture2D();
         GlStateManager.enableAlpha();
         GlStateManager.enableBlend();
@@ -209,7 +205,7 @@ public final class ClickGuiFontRenderer {
         return fallback == null ? new Glyph(0, 0, 0, 0, 12.0F, 0, 0) : fallback;
     }
 
-
+    /** GL name of the font atlas, or -1 before it is loaded. */
     int textureId() {
         if (this.texture == null) return -1;
         net.minecraft.client.renderer.texture.ITextureObject object = MC.getTextureManager().getTexture(this.texture);
@@ -225,8 +221,14 @@ public final class ClickGuiFontRenderer {
             if (stream == null) return null;
             BufferedImage image = ImageIO.read(stream);
             if (image == null) return null;
-            this.texture = MC.getTextureManager().getDynamicTextureLocation(
-                    "crewx_clickgui_font_atlas", new DynamicTexture(image));
+            DynamicTexture atlas = new DynamicTexture(image);
+            this.texture = MC.getTextureManager().getDynamicTextureLocation("crewx_clickgui_font_atlas", atlas);
+            // smooth filtering, set once: changing a texture's parameters while queued draws still use it (as
+            // every text draw used to do) can make the driver wait for the GPU - a hitch in whatever draws text
+            MC.getTextureManager().bindTexture(this.texture);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            crewx.util.TextureGuard.watch(this.texture, atlas, image.getWidth(), image.getHeight(), true);
         } catch (Exception ignored) {
             return null;
         }

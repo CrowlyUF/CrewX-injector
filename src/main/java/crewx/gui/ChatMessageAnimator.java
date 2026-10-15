@@ -13,7 +13,7 @@ public final class ChatMessageAnimator {
     private ChatMessageAnimator() {
     }
 
-
+    /** 0..1 eased progress of a new line's entrance (1 = settled). */
     public static float getProgress(ChatLine line, int currentCounter) {
         if (line == null) return 1.0F;
         int age = currentCounter - line.getUpdatedCounter();
@@ -29,12 +29,12 @@ public final class ChatMessageAnimator {
         return 1.0F - inverse * inverse * inverse;
     }
 
-
+    /** New lines fade in while they rise into place; returns the colour with the faded alpha. */
     public static int fadeColor(int color, float progress) {
         if (progress >= 1.0F) return color;
         int alpha = color >>> 24;
         if (alpha == 0) alpha = 255;
-
+        // FontRenderer treats alpha < 4 as opaque, so never go below it
         int faded = Math.max(4, Math.round(alpha * progress));
         return faded << 24 | color & 0xFFFFFF;
     }

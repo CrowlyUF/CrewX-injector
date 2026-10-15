@@ -96,7 +96,7 @@ public abstract class MixinGuiIngame {
         if (rows <= 0) return;
 
         FontRenderer font = Minecraft.getMinecraft().fontRendererObj;
-
+        // vanilla bounds: the title row starts at panelY, the score rows end at bottom
         float panelX = left;
         float panelY = top - rows * font.FONT_HEIGHT - 1.0F;
         float panelWidth = right - left;
@@ -106,18 +106,18 @@ public abstract class MixinGuiIngame {
                 panelWidth, panelHeight, font.FONT_HEIGHT + 1.0F);
     }
 
-
-
-
-
-
+    /**
+     * Only the panel behind the server's text: a little breathing room around the vanilla bounds, blurred glass,
+     * a faint title band with an accent hairline under the title, a soft shadow and a thin edge. The text, the
+     * scores and their colours are still drawn by vanilla on top, untouched.
+     */
     private static void crewx$drawScoreboardPanel(float textX, float textY, float textWidth, float textHeight, float titleHeight) {
         float x = textX - 2.0F;
         float y = textY - 2.0F;
         float w = textWidth + 3.0F;
         float h = textHeight + 3.5F;
         float radius = 4.0F;
-
+        // shadow (two faint layers), glass body, edge
         RoundedUtils.drawRoundedRect(x - 1.5F, y - 0.5F, w + 3.0F, h + 3.0F, 0x14000000, radius + 1.5F);
         RoundedUtils.drawRoundedRect(x - 0.5F, y + 0.5F, w + 1.0F, h + 1.0F, 0x1E000000, radius + 0.5F);
         BackdropBlur.drawRoundedPanel(x, y, w, h, radius, 0x940C0D10);

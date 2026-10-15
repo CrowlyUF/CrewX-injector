@@ -8,10 +8,10 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-
-
-
-
+/**
+ * Turns messy player metadata ("Artist - Topic", "Song (feat. X) [Official Video]", "Artist - Song") into
+ * clean search candidates. Pure Java, unit-testable.
+ */
 public final class LyricsQuery {
     public final String title;
     public final String artist;
@@ -48,7 +48,7 @@ public final class LyricsQuery {
         return text.replaceAll("\\s+", " ").trim();
     }
 
-
+    /** Artist without YouTube channel noise, but with every credited name. */
     public static String cleanArtistFull(String raw) {
         String text = raw == null ? "" : raw.trim();
         text = ARTIST_NOISE.matcher(text).replaceAll("");
@@ -61,19 +61,19 @@ public final class LyricsQuery {
         return parts.length == 0 ? full : parts[0].trim();
     }
 
-
+    /** Lower-case, accent-free, punctuation-free form used for comparing names. */
     public static String normalize(String text) {
         if (text == null) return "";
         String decomposed = Normalizer.normalize(text, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
         return decomposed.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
     }
 
-
+    /** Stable identity for the disk cache, shared between Spotify and system sources. */
     public String cacheKey() {
         return normalize(cleanArtistFull(this.artist)) + "|" + normalize(cleanTitle(this.title)) + "|" + this.durationSeconds / 2L;
     }
 
-
+    /** Ordered (title, artist, withAlbum) combinations for the exact-match endpoint. */
     public List<String[]> exactCandidates() {
         Set<String> seen = new LinkedHashSet<>();
         List<String[]> result = new ArrayList<>();
@@ -87,7 +87,7 @@ public final class LyricsQuery {
         return result;
     }
 
-
+    /** "Artist - Song" titles (typical for YouTube/SoundCloud uploads) as {artist, song} pairs. */
     public static List<String[]> splitHyphenTitle(String title) {
         List<String[]> pairs = new ArrayList<>();
         int index = title.indexOf(" - ");
@@ -105,13 +105,13 @@ public final class LyricsQuery {
         if (seen.add(key)) out.add(new String[]{title.trim(), artist == null ? "" : artist.trim(), album == null ? "" : album.trim()});
     }
 
-
+    /** Score a search hit: higher is better, below 0 means "not the same song". */
     public int score(String hitTitle, String hitArtist, long hitDurationSeconds, boolean hasSynced) {
         String wantedTitle = normalize(cleanTitle(this.title));
         String gotTitle = normalize(cleanTitle(hitTitle));
         int titleScore = similarity(wantedTitle, gotTitle);
         if (titleScore < 2) {
-
+            // "Artist - Song" uploads: the real song name is the right side
             for (String[] pair : splitHyphenTitle(cleanTitle(this.title))) {
                 titleScore = Math.max(titleScore, similarity(normalize(pair[1]), gotTitle));
             }
