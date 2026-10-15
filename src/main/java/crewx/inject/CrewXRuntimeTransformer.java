@@ -1233,6 +1233,8 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                         public void visitInsn(int opcode) {
                             if (opcode == RETURN) {
                                 mv.visitVarInsn(FLOAD, 1);
+                                callHook(mv, "onRenderOverlayFrameFallback", "(F)V");
+                                mv.visitVarInsn(FLOAD, 1);
                                 callHook(mv, "onClickGuiRenderFallback", "(F)V");
                             }
                             super.visitInsn(opcode);

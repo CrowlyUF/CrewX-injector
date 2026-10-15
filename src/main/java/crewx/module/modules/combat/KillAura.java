@@ -694,10 +694,14 @@ public class KillAura extends Module {
                 boolean attacked = false;
                 if (this.isBoxInSwingRange(this.target.getBox())) {
                     if (this.rotations.getValue() == 2 || this.rotations.getValue() == 3) {
+                        Displace displace = (Displace) CrewX.moduleManager.modules.get(Displace.class);
+                        boolean displacedByAura = displace != null && displace.isEnabled() && displace.killAura.getValue();
+                        float rotationBaseYaw = displacedByAura ? mc.thePlayer.rotationYaw : event.getYaw();
+                        float rotationBasePitch = displacedByAura ? mc.thePlayer.rotationPitch : event.getPitch();
                         float[] rotations = RotationUtil.getRotationsToBox(
                                 this.target.getBox(),
-                                event.getYaw(),
-                                event.getPitch(),
+                                rotationBaseYaw,
+                                rotationBasePitch,
                                 (float) this.angleStep.getValue() + RandomUtil.nextFloat(-5.0F, 5.0F),
                                 (float) this.smoothing.getValue() / 100.0F
                         );

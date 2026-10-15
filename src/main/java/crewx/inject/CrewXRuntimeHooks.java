@@ -87,9 +87,11 @@ public final class CrewXRuntimeHooks {
     private static boolean clickGuiFallbackErrorLogged;
     private static boolean itemRenderStateChecked;
     private static String lastTitleScreenClass;
+    private static boolean renderOverlayThisFrame;
 
     public static void onClickGuiFrameBegin() {
         crewx.util.WorldRenderPass.frameBegin();
+        renderOverlayThisFrame = false;
         crewx.util.HitchMonitor.frame();
         crewx.util.TextureGuard.tick();
         clickGuiDrawAtFrameStart = ClickGui.getDrawCount();
@@ -568,8 +570,14 @@ public final class CrewXRuntimeHooks {
     }
 
     public static void onRenderOverlay(float partialTicks) {
+        // Lunar's GuiIngame overlay is drawn on a separate cadence/surface. Its
+        // CrewX 2D event would remain beside the frame event and duplicate the
+        // projected tags and boxes. Use the frame event exclusively there.
+        if (Minecraft.getMinecraft().getClass().getClassLoader().getClass()
+                .getName().startsWith("com.moonsworth.lunar.")) return;
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
+            renderOverlayThisFrame = true;
             render2dCount++;
             long now = System.nanoTime();
             if (renderRateStart == 0L) {
@@ -599,6 +607,41 @@ public final class CrewXRuntimeHooks {
                 net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
             } catch (Throwable ignored) {
             }
+        }
+    }
+
+    public static void onRenderOverlayFrameFallback(float partialTicks) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (renderOverlayThisFrame || mc.theWorld == null || mc.thePlayer == null
+                || mc.currentScreen != null) return;
+        int matrixMode = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_MATRIX_MODE);
+        double[] glCache = crewx.util.GlStateSync.snapshot();
+        org.lwjgl.opengl.GL11.glPushAttrib(org.lwjgl.opengl.GL11.GL_ALL_ATTRIB_BITS);
+        org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
+        org.lwjgl.opengl.GL11.glPushMatrix();
+        org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+        org.lwjgl.opengl.GL11.glPushMatrix();
+        try {
+            mc.entityRenderer.setupOverlayRendering();
+            renderOverlayThisFrame = true;
+            render2dCount++;
+            EventManager.call(new Render2DEvent(partialTicks));
+            crewx.util.WorldRenderPass.frameBegin();
+        } catch (Throwable error) {
+            CrewXBootstrap.log("overlay frame fallback FAILED: "
+                    + CrewXBootstrap.describeFailure(error));
+        } finally {
+            try {
+                crewx.util.shader.Shader.releaseIfLeaked();
+            } catch (Throwable ignored) {
+            }
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
+            org.lwjgl.opengl.GL11.glPopMatrix();
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
+            org.lwjgl.opengl.GL11.glPopMatrix();
+            org.lwjgl.opengl.GL11.glPopAttrib();
+            crewx.util.GlStateSync.afterPopAttrib(glCache);
+            org.lwjgl.opengl.GL11.glMatrixMode(matrixMode);
         }
     }
 
