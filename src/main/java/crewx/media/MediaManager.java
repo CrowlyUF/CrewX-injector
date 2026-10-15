@@ -9,11 +9,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-
-
-
-
-
+/**
+ * Hub that ties everything together: it runs the system source (always) and the Spotify API source
+ * (only when it adds something), decides which one the card shows, and loads cover art + lyrics for
+ * the current track in the background. The render thread only reads cheap volatile snapshots.
+ */
 public final class MediaManager implements MediaSource.Listener {
     public static final int MODE_AUTO = 0;
     public static final int MODE_SYSTEM = 1;
@@ -45,11 +45,11 @@ public final class MediaManager implements MediaSource.Listener {
     private volatile MediaInfo spotifyInfo;
     private volatile MediaInfo current;
     private volatile BufferedImage pendingArtwork;
-
+    /** Set when the shown cover must go away (cover changed, nothing playing, restart). */
     private volatile boolean artworkCleared;
     private volatile String artworkRequested = "";
     private volatile String systemStatus = "";
-
+    /** Why the current cover could not be shown ("" when fine); reported by {@link #getStatus()}. */
     private volatile String artworkError = "";
     private volatile boolean running;
     private volatile long seekHoldUntil;
@@ -65,7 +65,7 @@ public final class MediaManager implements MediaSource.Listener {
         this.lyrics = new LyricsService(new File(configDir, "lyrics"));
     }
 
-
+    // ------------------------------------------------------------------ lifecycle
 
     public synchronized void start() {
         if (this.running) return;
@@ -103,7 +103,7 @@ public final class MediaManager implements MediaSource.Listener {
         this.lyrics.request(null);
     }
 
-
+    // ------------------------------------------------------------------ source callbacks
 
     @Override
     public void onMedia(MediaSource source, MediaInfo info) {
@@ -149,7 +149,7 @@ public final class MediaManager implements MediaSource.Listener {
         String art = held == null ? "" : held.artworkUrl;
         if (!art.equals(this.artworkRequested)) {
             this.artworkRequested = art;
-
+            // drop the old cover right away so a new song never shows the previous song's art
             this.pendingArtwork = null;
             this.artworkCleared = true;
             this.artworkError = "";
@@ -170,7 +170,7 @@ public final class MediaManager implements MediaSource.Listener {
         return sys.capturedAt >= spo.capturedAt ? sys : spo;
     }
 
-
+    /** After a seek, keep showing the requested position until the source catches up. */
     private MediaInfo applySeekHold(MediaInfo info) {
         if (info == null || System.currentTimeMillis() >= this.seekHoldUntil) return info;
         return info.toBuilder().playing(info.playing, this.seekHoldPosition).build();
@@ -198,7 +198,7 @@ public final class MediaManager implements MediaSource.Listener {
                     if (!url.equals(this.artworkRequested)) return;
                     this.artworkError = "cover failed: " + failure.getClass().getSimpleName()
                             + (failure.getMessage() == null ? "" : " (" + failure.getMessage() + ")");
-
+                    // network hiccups and covers that are still being written deserve another try
                     if (attempt < ARTWORK_ATTEMPTS) {
                         ScheduledExecutorService retry = this.ticker;
                         if (retry != null && !retry.isShutdown()) {
@@ -218,7 +218,7 @@ public final class MediaManager implements MediaSource.Listener {
         });
     }
 
-
+    // ------------------------------------------------------------------ queries (render thread)
 
     public MediaInfo getCurrent() {
         return this.current;
@@ -230,14 +230,14 @@ public final class MediaManager implements MediaSource.Listener {
         return info != null && info.key.equals(lyrics.key) ? lyrics : Lyrics.NONE;
     }
 
-
+    /** Returns a freshly loaded rounded cover once, or null. */
     public BufferedImage takeArtwork() {
         BufferedImage image = this.pendingArtwork;
         this.pendingArtwork = null;
         return image;
     }
 
-
+    /** True once after the current cover became invalid; the card should drop its texture. */
     public boolean takeArtworkCleared() {
         if (!this.artworkCleared) return false;
         this.artworkCleared = false;
@@ -262,7 +262,7 @@ public final class MediaManager implements MediaSource.Listener {
         return mode == MODE_SYSTEM ? sysText : sysText + " · Spotify: " + this.spotify.getStatus();
     }
 
-
+    // ------------------------------------------------------------------ actions
 
     public void control(MediaAction action) {
         MediaInfo info = this.current;
@@ -273,7 +273,7 @@ public final class MediaManager implements MediaSource.Listener {
         MediaSource target = info.key.startsWith("spotify:") ? this.spotify : this.system;
         target.control(action, 0L);
         if (action == MediaAction.TOGGLE && target == this.system) {
-
+            // instant feedback; the real state arrives from the helper within ~0.2 s
             MediaInfo flipped = info.toBuilder().playing(!info.playing, info.positionNow()).build();
             this.systemInfo = flipped;
             evaluate();

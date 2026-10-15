@@ -10,34 +10,34 @@ import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.Entity;
 import org.lwjgl.opengl.GL11;
 
-
-
-
-
+/**
+ * Jello-style target indicator: a dark ring around the target that glides up and down its body, leaving a
+ * soft shadow trail behind it (the trail is longest mid-way and vanishes at the turning points).
+ */
 public final class TargetIndicator {
-
+    /** One full up-and-down trip. */
     static final double PERIOD_MS = 2000.0D;
     private static final int SEGMENTS = 64;
 
     private TargetIndicator() {
     }
 
-
+    /** 0 (feet) .. 1 (top of the head), eased so it slows down at both ends. */
     public static double heightFraction(long timeMs) {
         double phase = (timeMs % (long) PERIOD_MS) / PERIOD_MS;
         return (1.0D - Math.cos(phase * Math.PI * 2.0D)) / 2.0D;
     }
 
-
+    /** Signed vertical speed in fractions/period: positive going up, negative going down. */
     public static double verticalSpeed(long timeMs) {
         double phase = (timeMs % (long) PERIOD_MS) / PERIOD_MS;
         return Math.sin(phase * Math.PI * 2.0D);
     }
 
-
-
-
-
+    /**
+     * @param alpha overall opacity 0..1 (used to fade the indicator in and out)
+     * @param rgb   colour without alpha (0x000000 = the dark Jello look)
+     */
     public static void draw(Entity entity, float partialTicks, float alpha, int rgb) {
         if (entity == null || alpha <= 0.01F) return;
         Minecraft mc = Minecraft.getMinecraft();
@@ -50,7 +50,7 @@ public final class TargetIndicator {
         double height = entity.height + 0.1D;
         double ringY = y + heightFraction(now) * height;
         double speed = verticalSpeed(now);
-
+        // the trail points where the ring came from
         double trail = -Math.signum(speed) * Math.min(0.5D, Math.abs(speed) * 0.5D);
         double radius = entity.width * 0.8D + 0.05D;
 

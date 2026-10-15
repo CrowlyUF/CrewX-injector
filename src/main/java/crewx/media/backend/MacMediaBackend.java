@@ -6,10 +6,10 @@ import crewx.media.MediaInfo;
 import java.util.ArrayList;
 import java.util.List;
 
-
-
-
-
+/**
+ * macOS: Spotify and Music apps through AppleScript (browsers are not exposed to scripts on macOS). The app
+ * that is playing wins over a paused one. macOS asks once for "Automation" permission to control each app.
+ */
 public final class MacMediaBackend extends PollingBackend {
     private static final String SEP = "\u001f";
     private static final String[] READ_SCRIPT = {
@@ -34,7 +34,7 @@ public final class MacMediaBackend extends PollingBackend {
             "end if",
             "end tell",
             "end if",
-
+            // nothing playing: show whichever app is paused (Spotify first)
             "if spotifyLine is not \"\" then return spotifyLine",
             "return musicLine"
     };
@@ -62,7 +62,7 @@ public final class MacMediaBackend extends PollingBackend {
         return info;
     }
 
-
+    /** Exposed for tests. */
     static MediaInfo parse(String line, long now) {
         String[] f = line.split(SEP, -1);
         if (f.length < 8 || f[2].trim().isEmpty()) return null;

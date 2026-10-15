@@ -45,13 +45,11 @@ public final class BackdropBlur {
     private static int featherUniform;
     private static int opacityUniform;
     private static int sceneOverlayUniform;
-
+    /** Texture storage checked this frame (size follows the window). */
     private static boolean captured;
-
-    private static final float[][] COPIED = new float[16][4];
+    /** Window-pixel rectangles {x0, y0, x1, y1} already copied into the snapshot this frame. */
+    private static final int[][] COPIED = new int[16][4];
     private static int copiedCount;
-    private static final java.nio.FloatBuffer MATRIX = org.lwjgl.BufferUtils.createFloatBuffer(16);
-    private static final float[] REGION = new float[4];
     private static boolean shaderUnavailable;
 
     private BackdropBlur() {
@@ -69,16 +67,15 @@ public final class BackdropBlur {
     public static void drawRoundedPanel(float x, float y, float width, float height, float radius, int color, float blurRadius) {
         if (width <= 0.0F || height <= 0.0F) return;
         float safeRadius = Math.max(0.0F, Math.min(radius, Math.min(width, height) * 0.5F));
-        if ((color >>> 24) > 8 && capture(x, y, width, height, blurRadius) && ensureShader()) {
+        if ((color >>> 24) > 8 && enabled() && capture(x, y, width, height, blurRadius) && ensureShader()) {
             drawBlurred(x, y, width, height, safeRadius, Math.max(0.0F, blurRadius), 0.0F);
         }
         RoundedUtils.drawRoundedRect(x, y, width, height, color, safeRadius);
     }
 
-
     public static void drawRoundedBlurOnly(float x, float y, float width, float height,
                                            float radius, float blurRadius, float opacity) {
-        if (width <= 0.0F || height <= 0.0F || opacity <= 0.0F) return;
+        if (width <= 0.0F || height <= 0.0F || opacity <= 0.0F || !enabled()) return;
         float safeRadius = Math.max(0.0F, Math.min(radius, Math.min(width, height) * 0.5F));
         if (capture(x, y, width, height, blurRadius) && ensureShader()) {
             drawBlurred(x, y, width, height, safeRadius, Math.max(0.0F, blurRadius), 0.0F,
@@ -86,13 +83,13 @@ public final class BackdropBlur {
         }
     }
 
-
-
-
-
+    /**
+     * Blurred backdrop that fades out smoothly past the edge of the given rectangle: the area extends
+     * {@code feather} units beyond it and its opacity falls from 1 (at the rectangle) to 0 (outside).
+     */
     public static void drawFeatheredHalo(float x, float y, float width, float height, float radius,
                                          float blurRadius, float feather) {
-        if (width <= 0.0F || height <= 0.0F || feather <= 0.0F) return;
+        if (width <= 0.0F || height <= 0.0F || feather <= 0.0F || !enabled()) return;
         if (capture(x - feather, y - feather, width + feather * 2.0F, height + feather * 2.0F, blurRadius) && ensureShader()) {
             float safeRadius = Math.max(0.0F, Math.min(radius, Math.min(width, height) * 0.5F));
             drawBlurred(x - feather, y - feather, width + feather * 2.0F, height + feather * 2.0F,
@@ -100,48 +97,76 @@ public final class BackdropBlur {
         }
     }
 
+    /**
+     * Set while a caller draws under a transform of its own (the chat is translated and scaled): its panel's
+     * window position is not known without asking the driver for the matrix, so the whole window is copied.
+     */
+    private static boolean unknownTransform;
 
+    public static void beginUnknownTransform() {
+        unknownTransform = true;
+    }
 
+    public static void endUnknownTransform() {
+        unknownTransform = false;
+    }
 
+    /** "Blur" off in the HUD settings: panels are drawn translucent only, with no GPU work for the blur. */
+    private static boolean enabled() {
+        if (crewx.CrewX.moduleManager == null) return true;
+        crewx.module.modules.render.HUD hud = (crewx.module.modules.render.HUD) crewx.CrewX.moduleManager.modules.get(crewx.module.modules.render.HUD.class);
+        return hud == null || hud.blur.getValue();
+    }
 
-
-
-
+    /**
+     * Copies the part of the frame a panel reads (its rectangle plus the blur reach) into the snapshot texture, at
+     * the same position; regions already copied this frame are reused. Small regions matter on weaker GPUs: a
+     * full-window copy every frame is a lot of memory traffic for a few small panels.
+     *
+     * No glGet* here, on purpose: every state query makes the CPU wait until the driver has caught up with all
+     * queued work, which is short when the GPU is idle and 50-100 ms when it is busy. Panel positions are worked
+     * out from GUI coordinates (callers draw without transforms of their own, except the chat - see
+     * {@link #beginUnknownTransform}), and the touched state is saved with glPushAttrib.
+     */
     private static boolean capture(float x, float y, float width, float height, float blurRadius) {
         if (!ensureStorage()) return false;
         int displayWidth = MC.displayWidth;
         int displayHeight = MC.displayHeight;
-        float[] r = windowRect(x, y, width, height, blurRadius * 0.5F + 3.0F);
-        if (r == null) {
-            r = REGION;
-            r[0] = 0.0F;
-            r[1] = 0.0F;
-            r[2] = displayWidth;
-            r[3] = displayHeight;
+        if (displayWidth <= 0 || displayHeight <= 0) return false;
+        int x0, y0, x1, y1;
+        if (unknownTransform) {
+            x0 = 0;
+            y0 = 0;
+            x1 = displayWidth;
+            y1 = displayHeight;
+        } else {
+            float factor = new ScaledResolution(MC).getScaleFactor();
+            float margin = blurRadius * 0.5F + 3.0F;
+            x0 = Math.max(0, (int) Math.floor(x * factor - margin));
+            x1 = Math.min(displayWidth, (int) Math.ceil((x + width) * factor + margin));
+            // GUI y grows downwards, window pixels upwards
+            y0 = Math.max(0, (int) Math.floor(displayHeight - (y + height) * factor - margin));
+            y1 = Math.min(displayHeight, (int) Math.ceil(displayHeight - y * factor + margin));
         }
-        for (int i = 0; i < copiedCount; i++) {
-            float[] c = COPIED[i];
-            if (r[0] >= c[0] && r[1] >= c[1] && r[2] <= c[2] && r[3] <= c[3]) return true;
-        }
-        int x0 = (int) Math.floor(r[0]);
-        int y0 = (int) Math.floor(r[1]);
-        int x1 = (int) Math.ceil(r[2]);
-        int y1 = (int) Math.ceil(r[3]);
         if (x1 <= x0 || y1 <= y0) return false;
-        int activeTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        for (int i = 0; i < copiedCount; i++) {
+            int[] c = COPIED[i];
+            if (x0 >= c[0] && y0 >= c[1] && x1 <= c[2] && y1 <= c[3]) return true;
+        }
+        if (GL11.glGetInteger(GL11.GL_ATTRIB_STACK_DEPTH)
+                >= GL11.glGetInteger(GL11.GL_MAX_ATTRIB_STACK_DEPTH)) return false;
+        GL11.glPushAttrib(GL11.GL_TEXTURE_BIT);   // active unit and bindings
         try {
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, snapshotTexture);
             GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, x0, y0, x0, y0, x1 - x0, y1 - y0);
         } catch (Throwable ignored) {
             return false;
         } finally {
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
-            GL13.glActiveTexture(activeTexture);
+            GL11.glPopAttrib();
         }
         if (copiedCount < COPIED.length) {
-            float[] c = COPIED[copiedCount++];
+            int[] c = COPIED[copiedCount++];
             c[0] = x0;
             c[1] = y0;
             c[2] = x1;
@@ -150,36 +175,7 @@ public final class BackdropBlur {
         return true;
     }
 
-
-
-
-
-
-    private static float[] windowRect(float x, float y, float width, float height, float margin) {
-        MATRIX.clear();
-        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MATRIX);
-        if (Math.abs(MATRIX.get(1)) > 1.0E-4F || Math.abs(MATRIX.get(4)) > 1.0E-4F) return null;
-        float sx = MATRIX.get(0);
-        float sy = MATRIX.get(5);
-        float tx = MATRIX.get(12);
-        float ty = MATRIX.get(13);
-        float factor = new ScaledResolution(MC).getScaleFactor();
-        float ax = (sx * x + tx) * factor;
-        float bx = (sx * (x + width) + tx) * factor;
-        float ay = (sy * y + ty) * factor;
-        float by = (sy * (y + height) + ty) * factor;
-        int displayWidth = MC.displayWidth;
-        int displayHeight = MC.displayHeight;
-        float[] r = REGION;
-        r[0] = Math.max(0.0F, Math.min(ax, bx) - margin);
-        r[2] = Math.min(displayWidth, Math.max(ax, bx) + margin);
-
-        r[1] = Math.max(0.0F, displayHeight - Math.max(ay, by) - margin);
-        r[3] = Math.min(displayHeight, displayHeight - Math.min(ay, by) + margin);
-        return r;
-    }
-
-
+    /** (Re)allocates the snapshot texture when the window size changes; once per frame. */
     private static boolean ensureStorage() {
         if (captured) return snapshotTexture != 0;
         captured = true;
@@ -191,10 +187,11 @@ public final class BackdropBlur {
         int storageHeight = npot ? height : nextPowerOfTwo(height);
         if (snapshotTexture != 0 && textureWidth == storageWidth && textureHeight == storageHeight) return true;
 
-        int activeTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        if (GL11.glGetInteger(GL11.GL_ATTRIB_STACK_DEPTH)
+                >= GL11.glGetInteger(GL11.GL_MAX_ATTRIB_STACK_DEPTH)) return false;
+        GL11.glPushAttrib(GL11.GL_TEXTURE_BIT);
         try {
+            GL13.glActiveTexture(GL13.GL_TEXTURE0);
             if (snapshotTexture == 0) snapshotTexture = GL11.glGenTextures();
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, snapshotTexture);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
@@ -205,13 +202,11 @@ public final class BackdropBlur {
                     GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (ByteBuffer) null);
             textureWidth = storageWidth;
             textureHeight = storageHeight;
-            copiedCount = 0;
             return true;
         } catch (Throwable ignored) {
             return false;
         } finally {
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
-            GL13.glActiveTexture(activeTexture);
+            GL11.glPopAttrib();
         }
     }
 

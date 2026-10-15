@@ -98,7 +98,7 @@ target_link_libraries(CrewXInjector PRIVATE advapi32 user32 gdi32)
 target_link_options(CrewXInjector PRIVATE "/ENTRY:wmainCRTStartup")
 
 set_property(TARGET CrewXNative CrewXInjector PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
 set_target_properties(CrewXNative CrewXInjector PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/dist")

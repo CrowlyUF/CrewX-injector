@@ -1,19 +1,19 @@
 package crewx.gui;
 
-
-
-
-
-
+/**
+ * A line of Minecraft-formatted text ({@code §} colour codes, as in server MOTDs and player lists) parsed once and
+ * drawn in the client font as a single batch, each glyph in its run's colour. Formatting codes other than colours
+ * and reset are ignored. Very dark colours are lifted so they stay readable on the dark panels.
+ */
 public final class FormattedText {
     private static final int[] PALETTE = {
             0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xFFAA00, 0xAAAAAA,
             0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF
     };
 
-
+    /** The text without formatting codes. */
     public final String plain;
-
+    /** Width of {@link #plain} in the client font. */
     public final float width;
     private final float[] charEnds;
     private final int[] charColors;
@@ -29,7 +29,7 @@ public final class FormattedText {
         this.width = charEnds.length == 0 ? 0.0F : charEnds[charEnds.length - 1];
     }
 
-
+    /** @param defaultColor RGB of text before any colour code (and after a reset) */
     public static FormattedText of(String raw, int defaultColor) {
         String text = raw == null ? "" : raw;
         StringBuilder plain = new StringBuilder(text.length());
@@ -60,7 +60,7 @@ public final class FormattedText {
         return new FormattedText(result, ends, trimmed, defaultColor);
     }
 
-
+    /** Strips colour and formatting codes. */
     public static String strip(String raw) {
         if (raw == null || raw.indexOf('§') < 0) return raw == null ? "" : raw;
         StringBuilder out = new StringBuilder(raw.length());
@@ -75,7 +75,7 @@ public final class FormattedText {
         return out.toString();
     }
 
-
+    /** Draws the line, cut with an ellipsis if it is wider than {@code maxWidth}. */
     public void draw(float x, float y, float maxWidth, float alpha) {
         if (this.plain.isEmpty() || alpha <= 0.01F) return;
         String text = this.plain;
@@ -91,7 +91,7 @@ public final class FormattedText {
 
     private int colorAtOffset(float offset) {
         int color = this.defaultColor & 0xFFFFFF;
-
+        // first glyph whose right edge is past the offset
         int lo = 0;
         int hi = this.charEnds.length - 1;
         int found = this.charEnds.length - 1;
@@ -110,7 +110,7 @@ public final class FormattedText {
         return a << 24 | color;
     }
 
-
+    /** Lifts very dark colours (black, dark blue...) towards white so they read on a dark background. */
     static int readable(int rgb) {
         int r = rgb >> 16 & 255;
         int g = rgb >> 8 & 255;

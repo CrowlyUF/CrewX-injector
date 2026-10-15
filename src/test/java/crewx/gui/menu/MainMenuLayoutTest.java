@@ -6,7 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 public class MainMenuLayoutTest {
     private static final float FONT = 9.0F;
-
+    /** Scaled GUI sizes: 1080p@2, 720p@2, 1080p@3, 4:3, 16:10, ultrawide, a tiny window, 4K@4. */
     private static final float[][] SCREENS = {
             {960, 540}, {640, 360}, {640, 360}, {640, 480}, {840, 525}, {1720, 720}, {427, 240}, {960, 540}, {320, 240}
     };
@@ -38,15 +38,15 @@ public class MainMenuLayoutTest {
     @Test
     public void proportionsFollowTheReferenceOnAFullHdScreen() {
         MainMenuLayout l = new MainMenuLayout(960, 540, FONT);
-        assertTrue(l.clockCap > 70.0F && l.clockCap < 90.0F);
-        assertTrue(l.clockTop > 60.0F && l.clockTop < 80.0F);
-        assertTrue(l.buttonCenterY > 540 * 0.80F);
-        assertTrue(l.buttonSpacing > l.buttonRadius * 3.0F);
+        assertTrue(l.clockCap > 70.0F && l.clockCap < 90.0F);          // big clock (~15 % of the height)
+        assertTrue(l.clockTop > 60.0F && l.clockTop < 80.0F);          // high up
+        assertTrue(l.buttonCenterY > 540 * 0.80F);                     // buttons near the bottom
+        assertTrue(l.buttonSpacing > l.buttonRadius * 3.0F);           // well spaced
     }
 
     @Test
     public void buttonLabelsNeverTouch() {
-
+        // label widths of "Singleplayer", "Multiplayer", "Alts" at the menu's text scale
         float widest = 56.0F;
         for (float[] s : SCREENS) {
             MainMenuLayout l = new MainMenuLayout(s[0], s[1], FONT, widest + 14.0F);

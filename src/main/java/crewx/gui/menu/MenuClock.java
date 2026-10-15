@@ -9,10 +9,10 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 
-
-
-
-
+/**
+ * The big clock of the main menu. Digits come from a pre-rendered atlas (Inter Display Bold), so they stay
+ * sharp at any size and drawing is one quad per character; the text is rebuilt only when the minute changes.
+ */
 public final class MenuClock {
     private static final String ATLAS = "clock.png";
     private static final String CHARS = "0123456789:";
@@ -34,7 +34,7 @@ public final class MenuClock {
     private MenuClock() {
     }
 
-
+    /** "HH:mm" in the system's local time, recomputed once per minute. */
     public static String currentText() {
         long minute = System.currentTimeMillis() / 60000L;
         if (minute != cachedMinute) {
@@ -49,7 +49,7 @@ public final class MenuClock {
         return (hour < 10 ? "0" : "") + hour + ":" + (minute < 10 ? "0" : "") + minute;
     }
 
-
+    /** Width of {@code text} when the digits are {@code capHeight} tall; 0 while loading. */
     public static float width(String text, float capHeight) {
         if (!loadMetrics()) return 0.0F;
         float scale = capHeight / (capBottom - capTop);
@@ -62,7 +62,7 @@ public final class MenuClock {
         return Math.max(0.0F, w - TRACKING * cellHeight * scale);
     }
 
-
+    /** Draws {@code text} centred on {@code centerX}; {@code top} is the top of the digits. */
     public static boolean draw(String text, float centerX, float top, float capHeight, int argb) {
         MenuTextures.Tex atlas = MenuTextures.get(ATLAS);
         if (atlas == null || !loadMetrics()) return false;
@@ -72,7 +72,7 @@ public final class MenuClock {
         GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
         GlStateManager.disableAlpha();
         for (int pass = 0; pass < 2; pass++) {
-
+            // soft shadow first, then the digits
             float dy = pass == 0 ? capHeight * 0.025F : 0.0F;
             int color = pass == 0 ? ((argb >>> 24) * 40 / 255) << 24 : argb;
             MenuTextures.color(color);

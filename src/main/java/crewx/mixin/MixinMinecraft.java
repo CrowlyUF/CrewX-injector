@@ -47,10 +47,10 @@ public abstract class MixinMinecraft {
     @Shadow
     public GuiScreen currentScreen;
 
-
+    /** Every vanilla multiplayer screen (title menu, disconnect screens...) becomes the CrewX server selector. */
     @ModifyVariable(method = "displayGuiScreen", at = @At("HEAD"), argsOnly = true)
     private GuiScreen crewx$serverSelector(GuiScreen screen) {
-        if (screen != null && screen.getClass() == GuiMultiplayer.class) {
+        if (screen != null && screen.getClass() == GuiMultiplayer.class && crewx.gui.InterfaceSettings.isEnabled()) {
             return new crewx.gui.servers.CrewXServerSelector(((IAccessorGuiMultiplayer) screen).getParentScreen());
         }
         return screen;
@@ -59,7 +59,7 @@ public abstract class MixinMinecraft {
     @Inject(method = "displayGuiScreen", at = @At("HEAD"))
     private void crewx$displayGuiScreen(GuiScreen screen, CallbackInfo callbackInfo) {
         if (screen != this.currentScreen) {
-            if (screen instanceof GuiMainMenu) {
+            if (screen instanceof GuiMainMenu && crewx.gui.InterfaceSettings.isEnabled()) {
                 CrewXTransition.start();
             } else {
                 CrewXTransition.cancel();
@@ -114,6 +114,26 @@ public abstract class MixinMinecraft {
         }
         buffer.flip();
         return buffer;
+    }
+
+    @Inject(method = {"runTick"}, at = {@At("HEAD")})
+    private void crewx$tickTimerStart(CallbackInfo callbackInfo) {
+        crewx.util.HitchMonitor.beginPhase(crewx.util.HitchMonitor.TICK);
+    }
+
+    @Inject(method = {"runTick"}, at = {@At("RETURN")})
+    private void crewx$tickTimerEnd(CallbackInfo callbackInfo) {
+        crewx.util.HitchMonitor.endPhase(crewx.util.HitchMonitor.TICK);
+    }
+
+    @Inject(method = {"updateDisplay"}, at = {@At("HEAD")}, require = 0)
+    private void crewx$swapTimerStart(CallbackInfo callbackInfo) {
+        crewx.util.HitchMonitor.beginPhase(crewx.util.HitchMonitor.SWAP);
+    }
+
+    @Inject(method = {"updateDisplay"}, at = {@At("RETURN")}, require = 0)
+    private void crewx$swapTimerEnd(CallbackInfo callbackInfo) {
+        crewx.util.HitchMonitor.endPhase(crewx.util.HitchMonitor.SWAP);
     }
 
     @Inject(

@@ -17,7 +17,7 @@ public final class CrewXTheme {
     public static final int ACCENT = 0xFF7770D9;
     public static final int TEXT = 0xFFF1F2F8;
     public static final int MUTED = 0xFF9CA2BC;
-
+    /** Hover / press animation per button. Weak keys: the buttons of closed screens are not kept alive. */
     private static final Map<GuiButton, ButtonAnim> BUTTON_STATE = new java.util.WeakHashMap<GuiButton, ButtonAnim>();
 
     private static final class ButtonAnim {
@@ -37,7 +37,7 @@ public final class CrewXTheme {
                 field.setAccessible(true);
                 return field;
             } catch (ReflectiveOperationException | SecurityException ignored) {
-
+                // Try the other name (MCP / Badlion Notch).
             }
         }
         return null;
@@ -51,13 +51,13 @@ public final class CrewXTheme {
             try {
                 return BUTTON_HEIGHT_FIELD.getInt(button);
             } catch (IllegalAccessException ignored) {
-
+                // Preserve rendering if a client refuses reflective access.
             }
         }
         return 20;
     }
 
-
+    /** Space background (Earth at sunrise, mouse parallax) shared by every out-of-game CrewX screen. */
     public static void drawBackground(int width, int height) {
         drawBackground(width, height, true);
     }
@@ -92,7 +92,7 @@ public final class CrewXTheme {
         long now = Minecraft.getSystemTime();
         float dt = Math.max(0.0F, Math.min(0.1F, (now - state.last) / 1000.0F));
         state.last = now;
-
+        // frame-rate independent easing
         state.hover = approach(state.hover, hovered && button.enabled ? 1.0F : 0.0F, dt, 16.0F);
         state.press = approach(state.press, pressed ? 1.0F : 0.0F, dt, 24.0F);
         return state;
@@ -103,15 +103,15 @@ public final class CrewXTheme {
         return Math.abs(target - next) < 0.005F ? target : next;
     }
 
-
-
-
-
-
+    /**
+     * Every GuiButton of the client (pause menu, options, dialogs...): a dark rounded pill with a hairline edge, in
+     * the same neutral tones as the ClickGUI and the Alt Manager. Hover lights the edge with the theme accent,
+     * pressing darkens it, disabled buttons fade out.
+     */
     public static void drawButton(GuiButton button, int mouseX, int mouseY) {
         if (!button.visible) return;
-
-
+        // Badlion makes GuiButton.width/height protected. The menu's own
+        // subclass exposes its bounds without reflective access per frame.
         int buttonWidth = button instanceof CrewXMainMenu.MenuButton
                 ? ((CrewXMainMenu.MenuButton) button).menuWidth()
                 : button.getButtonWidth();
@@ -140,7 +140,7 @@ public final class CrewXTheme {
             edge = 0x14FFFFFF;
             text = 0xFF5F636C;
         }
-
+        // soft drop shadow, body, hairline edge, faint top highlight
         GuiRender.roundedRect(x, y + 1.0, buttonWidth, buttonHeight, radius + 0.5, button.enabled ? 0x38000000 : 0x1E000000);
         GuiRender.roundedRect(x, y, buttonWidth, buttonHeight, radius, background);
         GuiRender.roundedOutline(x, y, buttonWidth, buttonHeight, radius, 1.0F, edge);
@@ -148,7 +148,7 @@ public final class CrewXTheme {
             GuiRender.rect(x + radius, y + 1.0, buttonWidth - radius * 2.0, 1.0, GuiRender.alpha(0x12FFFFFF, 1.0F - press));
         }
         if (hover > 0.01F) {
-
+            // gentle accent glow around the edge
             GuiRender.roundedOutline(x - 1.0, y - 1.0, buttonWidth + 2.0, buttonHeight + 2.0, radius + 1.0, 1.0F,
                     GuiRender.alpha(accent, 0.22F * hover * (1.0F - press)));
         }
@@ -156,7 +156,7 @@ public final class CrewXTheme {
                 y + (buttonHeight - ClientFont.getHeight()) / 2.0 + 0.5 * press, text);
     }
 
-
+    /** Theme accent (HUD colour), as the ClickGUI uses it. */
     private static int accent() {
         try {
             return crewx.module.modules.render.GuiModule.getAccent().getRGB() | 0xFF000000;

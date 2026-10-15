@@ -5,19 +5,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-
-
-
-
-
-
-
-
+/**
+ * Decides which single lyric excerpt belongs to the current playback position. Pure Java (unit-tested).
+ *
+ * Synced (LRC) lyrics use their own timestamps. Plain lyrics have no timing, so their lines are spread over
+ * the track (longer lines get more time) and shown one at a time, with consecutive repeats merged. Synced
+ * repeats keep their own timestamps (a repeated chorus line stays up while it is sung again); the card just
+ * does not animate a change when the text stays the same.
+ */
 public final class LyricsTimeline {
-
+    /** Pace for plain lyrics when the track length is unknown. */
     static final long PLAIN_BASE_MS = 1800L;
     static final long PLAIN_PER_CHAR_MS = 90L;
-
+    /** A line stays up at most this long after its sweep when the next one is far away (instrumental gap). */
     static final long HOLD_AFTER_LINE_MS = 6000L;
 
     private final List<LyricLine> lines;
@@ -28,7 +28,7 @@ public final class LyricsTimeline {
         this.estimated = estimated;
     }
 
-
+    /** Builds the timeline for a track; {@code durationMs <= 0} when unknown. */
     public static LyricsTimeline of(Lyrics lyrics, long durationMs) {
         if (lyrics == null || lyrics.state != Lyrics.State.FOUND || lyrics.lines.isEmpty()) {
             return new LyricsTimeline(Collections.<LyricLine>emptyList(), false);
@@ -37,7 +37,7 @@ public final class LyricsTimeline {
         return new LyricsTimeline(estimate(collapse(lyrics.lines, true), durationMs), true);
     }
 
-
+    /** Same text as the excerpt shown before (ignoring case and spacing): no transition is needed. */
     public boolean sameText(int a, int b) {
         if (a < 0 || b < 0 || a >= this.lines.size() || b >= this.lines.size()) return false;
         return this.lines.get(a).text.trim().replaceAll("\\s+", " ")
@@ -48,15 +48,15 @@ public final class LyricsTimeline {
         return this.lines;
     }
 
-
+    /** True when the timing was estimated (plain lyrics), so the UI should not pretend to be word-exact. */
     public boolean isEstimated() {
         return this.estimated;
     }
 
-
-
-
-
+    /**
+     * Index of the excerpt to show at {@code positionMs}, or -1 for none (before the first line, or during a
+     * long instrumental gap after a line has been sung).
+     */
     public int indexAt(long positionMs) {
         int active = -1;
         for (int i = 0; i < this.lines.size(); i++) {
@@ -70,7 +70,7 @@ public final class LyricsTimeline {
         return positionMs >= hideAt && hideAt < nextAt ? -1 : active;
     }
 
-
+    /** 0..1 progress of the karaoke sweep through excerpt {@code index}. */
     public float progress(int index, long positionMs, long durationMs) {
         if (index < 0 || index >= this.lines.size()) return 0.0F;
         if (this.estimated) return 1.0F;
@@ -87,7 +87,7 @@ public final class LyricsTimeline {
         return Math.max(1, line.text.length()) * 150L + 400L;
     }
 
-
+    /** Drops empty lines; with {@code mergeRepeats} also merges consecutive lines with the same text. */
     static List<LyricLine> collapse(List<LyricLine> source, boolean mergeRepeats) {
         List<LyricLine> result = new ArrayList<>();
         String previous = null;
@@ -102,7 +102,7 @@ public final class LyricsTimeline {
         return result;
     }
 
-
+    /** Spreads untimed lines over the track: they start after a short intro and end before the outro. */
     static List<LyricLine> estimate(List<LyricLine> plain, long durationMs) {
         List<LyricLine> result = new ArrayList<>(plain.size());
         if (plain.isEmpty()) return result;

@@ -25,10 +25,10 @@ import net.minecraft.util.MathHelper;
 
 import java.util.Comparator;
 
-
-
-
-
+/**
+ * Native CrewX implementation of projectile aiming for Minecraft 1.8.9.
+ * Written independently for CrewX; it does not include code from GPL sources.
+ */
 public class ProjectileAimbot extends Module {
     private static final Minecraft MC = Minecraft.getMinecraft();
     private static final int ROTATION_PRIORITY = 2;

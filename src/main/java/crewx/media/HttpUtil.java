@@ -19,7 +19,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-
+/** Small HTTP / OS helpers shared by the media sources. */
 public final class HttpUtil {
     public static final String USER_AGENT = "CrewX/1.0 (https://github.com/4everdies/CrewX)";
 
@@ -170,7 +170,7 @@ public final class HttpUtil {
         return System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
     }
 
-
+    /** Opens the default browser. Returns false if nothing worked (caller should show a clickable link). */
     public static boolean openBrowser(String url) {
         try {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {

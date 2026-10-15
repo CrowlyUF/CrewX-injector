@@ -16,7 +16,7 @@ public class ModuleManager {
 
     public Module getModule(String string) {
         if (string == null) return null;
-
+        // names may contain spaces ("Media Player") but commands split on spaces: also match without them
         String compact = string.replace(" ", "");
         Module found = this.modules.values().stream()
                 .filter(module -> module.getName().equalsIgnoreCase(string)
@@ -24,7 +24,7 @@ public class ModuleManager {
                 .findFirst()
                 .orElse(null);
         if (found == null && "spotify".equalsIgnoreCase(compact)) {
-            found = this.modules.get(crewx.module.modules.render.MediaPlayer.class);
+            found = this.modules.get(crewx.module.modules.render.MediaPlayer.class);   // old module name
         }
         return found;
     }

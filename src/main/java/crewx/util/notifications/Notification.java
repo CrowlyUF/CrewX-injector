@@ -12,7 +12,7 @@ public class Notification implements INotification {
     private NotificationType type;
     private float x, tarX, y;
     public Translate translate;
-
+    /** False until the renderer gives the card its first slot (it must not fly in from the screen corner). */
     public boolean placed;
 
     protected Notification(String header, String subtext, long displayTime, NotificationType type) {

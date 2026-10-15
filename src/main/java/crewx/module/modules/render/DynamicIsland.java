@@ -37,7 +37,7 @@ public class DynamicIsland extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
 
     private static final int BOX_HEIGHT = 22;
-
+    /** Height while Scaffold or BridgeAssist is on: room for the block-count bar. */
     private static final float EXPANDED_HEIGHT = 29.0F;
     private static final float PAD_LEFT = 13.0F;
     private static final float PAD_RIGHT = 14.0F;
@@ -67,7 +67,7 @@ public class DynamicIsland extends Module {
 
     private float animatedWidth = -1.0F;
     private long lastFrame = 0L;
-    private float scaffoldAnim = 0.0F;
+    private float blockCountAnim = 0.0F;
     private float hoverAnim = 0.0F;
 
     public DynamicIsland() {
@@ -84,12 +84,13 @@ public class DynamicIsland extends Module {
         lastFrame = now;
 
 
-        boolean scaffoldActive = (this.scaffoldMode.getValue() && isScaffoldActive()) || isBridgeAssistCounterActive();
+        boolean blockCountActive = (this.scaffoldMode.getValue() && isScaffoldActive())
+                || isBridgeAssistCounterActive();
         float animSpeed = 6.0F;
-        if (scaffoldActive) {
-            scaffoldAnim = Math.min(1.0F, scaffoldAnim + animSpeed * dt);
+        if (blockCountActive) {
+            blockCountAnim = Math.min(1.0F, blockCountAnim + animSpeed * dt);
         } else {
-            scaffoldAnim = Math.max(0.0F, scaffoldAnim - animSpeed * dt);
+            blockCountAnim = Math.max(0.0F, blockCountAnim - animSpeed * dt);
         }
 
 
@@ -99,12 +100,12 @@ public class DynamicIsland extends Module {
         fitParts(defaultParts, maxIslandWidth - PAD_LEFT - PAD_RIGHT - STATUS_SPACE);
         for (Part p : defaultParts) defaultContent += p.width;
 
-        float scaffoldContent = STATUS_SPACE + 20.0F;
-        List<Part> scaffoldParts = buildScaffoldParts(1.0F);
-        fitParts(scaffoldParts, maxIslandWidth - PAD_LEFT - PAD_RIGHT - STATUS_SPACE - 20.0F);
-        for (Part p : scaffoldParts) scaffoldContent += p.width;
+        float blockCountContent = STATUS_SPACE + 20.0F;
+        List<Part> blockCountParts = buildBlockCountParts(1.0F);
+        fitParts(blockCountParts, maxIslandWidth - PAD_LEFT - PAD_RIGHT - STATUS_SPACE - 20.0F);
+        for (Part p : blockCountParts) blockCountContent += p.width;
 
-        float targetContent = defaultContent + (scaffoldContent - defaultContent) * scaffoldAnim;
+        float targetContent = defaultContent + (blockCountContent - defaultContent) * blockCountAnim;
         float target = Math.min(maxIslandWidth, targetContent + PAD_LEFT + PAD_RIGHT);
 
         if (animatedWidth <= 0.0F) {
@@ -114,12 +115,12 @@ public class DynamicIsland extends Module {
         }
 
         float width = Math.min(animatedWidth, maxIslandWidth);
-        float expand = scaffoldAnim * scaffoldAnim * (3.0F - 2.0F * scaffoldAnim);
+        float expand = blockCountAnim * blockCountAnim * (3.0F - 2.0F * blockCountAnim);
         float height = BOX_HEIGHT + (EXPANDED_HEIGHT - BOX_HEIGHT) * expand;
         float x = Math.round(sr.getScaledWidth() / 2.0F - width / 2.0F);
         float y = Math.max(2.0F, Math.min(this.offsetY.getValue(), sr.getScaledHeight() - height - 2.0F));
         float radius = Math.min(this.curve.getValue(), height / 2.0F);
-
+        // Content stays on top; expansion opens room for the block-count bar.
         float centerY = y + BOX_HEIGHT / 2.0F + 1.0F * expand;
         float textY = centerY - ClientFont.getHeight() / 2.0F;
         boolean hovered = mc.currentScreen instanceof net.minecraft.client.gui.GuiChat && isMouseOver(sr, x, y, width, height);
@@ -132,7 +133,7 @@ public class DynamicIsland extends Module {
 
         RenderUtil.enableRenderState();
 
-
+        // soft neutral shadow (like the menus); "glow" adds only a faint halo of the theme colour
         for (int i = 4; i >= 1; i--) {
             drawRoundedRect(x - i, y - i + 1.5F, x + width + i, y + height + i + 1.5F, radius + i,
                     withAlpha(0x000000, (int) ((10 + (4 - i) * 9) * alpha / 255.0F)));
@@ -149,7 +150,7 @@ public class DynamicIsland extends Module {
         if (this.outline.getValue()) {
             drawRoundedOutline(x, y, x + width, y + height, radius, withAlpha(0xFFFFFF, 26 + (int) (22 * hoverAnim)), 1.0F);
         }
-
+        // thin top light, like light catching the edge of the glass
         float highlightWidth = Math.min(60.0F, Math.max(18.0F, width * 0.30F));
         drawRoundedRect(x + width / 2.0F - highlightWidth / 2.0F, y + 0.6F,
                 x + width / 2.0F + highlightWidth / 2.0F, y + 1.3F, 0.35F, withAlpha(0xFFFFFF, 30));
@@ -160,8 +161,8 @@ public class DynamicIsland extends Module {
         drawCircle(x + PAD_LEFT + STATUS_RADIUS, centerY, STATUS_RADIUS, withAlpha(accentRGB, 235));
 
 
-        float defaultAlpha = Math.max(0.0F, 1.0F - scaffoldAnim * 2.0F);
-        float scaffoldAlpha = Math.max(0.0F, (scaffoldAnim - 0.5F) * 2.0F);
+        float defaultAlpha = Math.max(0.0F, 1.0F - blockCountAnim * 2.0F);
+        float blockCountAlpha = Math.max(0.0F, (blockCountAnim - 0.5F) * 2.0F);
 
         GlStateManager.enableTexture2D();
 
@@ -184,14 +185,14 @@ public class DynamicIsland extends Module {
         }
 
 
-        if (scaffoldAlpha > 0.01F) {
+        if (blockCountAlpha > 0.01F) {
             float cursor = x + PAD_LEFT + STATUS_SPACE;
             ItemStack heldBlock = getHeldBlock();
             if (heldBlock != null) {
                 GlStateManager.pushMatrix();
                 GlStateManager.enableBlend();
                 GlStateManager.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-                GlStateManager.color(1.0F, 1.0F, 1.0F, scaffoldAlpha);
+                GlStateManager.color(1.0F, 1.0F, 1.0F, blockCountAlpha);
                 float iconX = cursor;
                 float iconY = centerY - 16.0F * 0.85F / 2.0F;
                 GlStateManager.translate(iconX, iconY, 0.0F);
@@ -213,18 +214,18 @@ public class DynamicIsland extends Module {
             }
             cursor += 20.0F;
 
-            for (Part part : scaffoldParts) {
+            for (Part part : blockCountParts) {
                 if (part.dot) {
-                    drawDivider(cursor + DOT_SPACE / 2.0F, centerY, scaffoldAlpha);
+                    drawDivider(cursor + DOT_SPACE / 2.0F, centerY, blockCountAlpha);
                 } else {
-                    int color = withAlpha(part.color, (int) (((part.color >> 24) & 0xFF) * scaffoldAlpha));
+                    int color = withAlpha(part.color, (int) (((part.color >> 24) & 0xFF) * blockCountAlpha));
                     drawText(part.text, cursor, textY, color);
                 }
                 cursor += part.width;
             }
         }
 
-
+        // Block-count bar (full at 128), coloured like the count.
         if (expand > 0.02F) {
             GlStateManager.disableTexture2D();
             int total = getTotalBlocks();
@@ -251,7 +252,7 @@ public class DynamicIsland extends Module {
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 
-
+    /** Separator between items: a short vertical hairline instead of a dot. */
     private static void drawDivider(float cx, float cy, float alpha) {
         GlStateManager.disableTexture2D();
         drawRoundedRect(cx - 0.5F, cy - 4.0F, cx + 0.5F, cy + 4.0F, 0.0F, withAlpha(0xFFFFFF, (int) (40 * alpha)));
@@ -264,9 +265,8 @@ public class DynamicIsland extends Module {
     }
 
     private boolean isBridgeAssistCounterActive() {
-        Module bridgeAssist = CrewX.moduleManager.modules.get(BridgeAssist.class);
-        return bridgeAssist instanceof BridgeAssist && bridgeAssist.isEnabled()
-                && ((BridgeAssist) bridgeAssist).blockCounter.getValue();
+        BridgeAssist bridgeAssist = (BridgeAssist) CrewX.moduleManager.modules.get(BridgeAssist.class);
+        return bridgeAssist != null && bridgeAssist.isEnabled() && bridgeAssist.blockCounter.getValue();
     }
 
     private ItemStack getHeldBlock() {
@@ -297,7 +297,7 @@ public class DynamicIsland extends Module {
         return total;
     }
 
-    private List<Part> buildScaffoldParts(float alpha) {
+    private List<Part> buildBlockCountParts(float alpha) {
         List<Part> parts = new ArrayList<Part>();
         int totalBlocks = getTotalBlocks();
         int aInt = (int) (255 * alpha);

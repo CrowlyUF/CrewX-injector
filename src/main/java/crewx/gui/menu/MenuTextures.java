@@ -16,11 +16,11 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-
-
-
-
-
+/**
+ * Images of the menus (space background, clock digits, icons). Each one is decoded once on a background
+ * thread, uploaded to the GPU on the render thread and its pixels are dropped from the heap right away;
+ * {@link #releaseIdle} frees the GPU copies while the menus are not on screen (e.g. in game).
+ */
 public final class MenuTextures {
     private static final String ROOT = "/assets/crewx/menu/";
     private static final Map<String, Tex> TEXTURES = new HashMap<String, Tex>();
@@ -48,7 +48,7 @@ public final class MenuTextures {
     private MenuTextures() {
     }
 
-
+    /** Render thread. Returns null until the texture is ready (callers draw a fallback meanwhile). */
     public static Tex get(String name) {
         Tex tex = TEXTURES.get(name);
         if (tex == null) {
@@ -62,7 +62,7 @@ public final class MenuTextures {
         return tex.id >= 0 ? tex : null;
     }
 
-
+    /** Starts decoding without drawing anything yet (avoids a pop-in on the first frame). */
     public static void preload(String... names) {
         for (String name : names) get(name);
     }
@@ -75,7 +75,7 @@ public final class MenuTextures {
         return true;
     }
 
-
+    /** Render thread: frees the GPU memory of textures not drawn for {@code idleMs}. */
     public static void releaseIdle(long idleMs) {
         long now = System.currentTimeMillis();
         Iterator<Map.Entry<String, Tex>> it = TEXTURES.entrySet().iterator();
@@ -114,7 +114,7 @@ public final class MenuTextures {
         }
     }
 
-
+    /** Colour from {@code rgb} (or black) with the alpha taken from a grayscale mask. */
     static BufferedImage withAlpha(BufferedImage rgb, BufferedImage mask, boolean black) {
         int w = mask.getWidth();
         int h = mask.getHeight();
@@ -143,7 +143,7 @@ public final class MenuTextures {
         tex.id = id;
     }
 
-
+    /** Draws (part of) a texture; colour/alpha come from the current GL colour. */
     public static void draw(Tex tex, double x, double y, double w, double h, double u0, double v0, double u1, double v1) {
         GlStateManager.enableTexture2D();
         GlStateManager.bindTexture(tex.id);

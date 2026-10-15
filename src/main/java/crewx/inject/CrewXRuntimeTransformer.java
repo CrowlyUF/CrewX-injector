@@ -1485,6 +1485,10 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                         @Override
                         public void visitCode() {
                             super.visitCode();
+                            rotationApplySites[0]++;
+                            mv.visitVarInsn(ALOAD, 0);
+                            callHook(mv, "onUpdateApply", "(Ljava/lang/Object;)V");
+                            callHook(mv, "onPlayerUpdate", "()V");
                         }
                     };
                 }
@@ -1500,15 +1504,6 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                         @Override
                         public void visitMethodInsn(int opcode, String owner, String calledName,
                                                     String calledDescriptor, boolean isInterface) {
-                            if ("isRiding".equals(calledName) && "()Z".equals(calledDescriptor)) {
-                                rotationApplySites[0]++;
-                                mv.visitVarInsn(ALOAD, 0);
-                                callHook(mv, "onUpdateApply", "(Ljava/lang/Object;)V");
-                            }
-                            if ("onUpdateWalkingPlayer".equals(calledName)
-                                    && "()V".equals(calledDescriptor)) {
-                                callHook(mv, "onPlayerUpdate", "()V");
-                            }
                             super.visitMethodInsn(opcode, owner, calledName, calledDescriptor,
                                     isInterface);
                         }
@@ -2130,19 +2125,20 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                     hooked[0] = true;
                     return new MethodVisitor(ASM9, base) {
                         @Override
-                        public void visitCode() {
-                            super.visitCode();
-                            mv.visitVarInsn(ALOAD, 1);
-                            callHook(mv, "onRenderLivingPre", "(Ljava/lang/Object;)V");
-                        }
-
-                        @Override
-                        public void visitInsn(int opcode) {
-                            if (opcode >= IRETURN && opcode <= RETURN) {
+                        public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                    String methodDescriptor, boolean isInterface) {
+                            if (opcode == INVOKEVIRTUAL
+                                    && "net/minecraft/client/renderer/entity/RendererLivingEntity".equals(owner)
+                                    && "renderModel".equals(methodName)
+                                    && "(Lnet/minecraft/entity/EntityLivingBase;FFFFFF)V".equals(methodDescriptor)) {
+                                mv.visitVarInsn(ALOAD, 1);
+                                callHook(mv, "onRenderLivingPre", "(Ljava/lang/Object;)V");
+                                super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
                                 mv.visitVarInsn(ALOAD, 1);
                                 callHook(mv, "onRenderLivingPost", "(Ljava/lang/Object;)V");
+                                return;
                             }
-                            super.visitInsn(opcode);
+                            super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
                         }
                     };
                 }

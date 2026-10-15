@@ -7,11 +7,11 @@ import crewx.media.backend.WindowsMediaBackend;
 
 import java.io.File;
 
-
-
-
-
-
+/**
+ * Reads whatever the operating system says is playing: Spotify app, SoundCloud / YouTube / any site in
+ * the browser, VLC... No account, no login. Windows is fully supported; Linux needs playerctl;
+ * macOS supports the Spotify and Music apps.
+ */
 public final class SystemMediaSource implements MediaSource {
     private final MediaBackend backend;
     private volatile String status = "Starting";

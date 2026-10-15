@@ -89,6 +89,9 @@ public final class CrewXRuntimeHooks {
     private static String lastTitleScreenClass;
 
     public static void onClickGuiFrameBegin() {
+        crewx.util.WorldRenderPass.frameBegin();
+        crewx.util.HitchMonitor.frame();
+        crewx.util.TextureGuard.tick();
         clickGuiDrawAtFrameStart = ClickGui.getDrawCount();
     }
 
@@ -127,6 +130,10 @@ public final class CrewXRuntimeHooks {
     private static volatile boolean rshiftWasDown;
     private static volatile boolean rshiftDispatchedThisTick;
     private static volatile long render2dCount;
+    private static volatile long render3dCount;
+    private static long renderRateStart;
+    private static long renderRate2dStart;
+    private static long renderRate3dStart;
     private static volatile long attackCalls;
     private static volatile long c02Packets;
     private static volatile boolean firstClientPacketReceived;
@@ -348,13 +355,26 @@ public final class CrewXRuntimeHooks {
                     lastTitleScreenClass = screenClass;
                     CrewXBootstrap.log("title screen class: " + screenClass);
                 }
+                if (!crewx.gui.InterfaceSettings.isEnabled()
+                        && "net.badlion.a.aPU".equals(screenClass)) {
+                    mc.displayGuiScreen(new net.minecraft.client.gui.GuiMainMenu());
+                }
                 if (mc.currentScreen != null
+                        && crewx.gui.InterfaceSettings.isEnabled()
                         && !(mc.currentScreen instanceof crewx.gui.CrewXMainMenu)
                         && (screenClass.toLowerCase(java.util.Locale.ROOT).contains("mainmenu")
-                                || "net.badlion.a.aPU".equals(screenClass))) {
+                                || "net.badlion.a.aPU".equals(screenClass)
+                                || isOwlScreen(mc.currentScreen, "fae"))) {
                     mc.displayGuiScreen(new crewx.gui.CrewXMainMenu());
                     CrewXBootstrap.log("CrewX main menu replaced " + screenClass);
                 }
+            }
+            if (mc.currentScreen != null
+                    && crewx.gui.InterfaceSettings.isEnabled()
+                    && isOwlScreen(mc.currentScreen, "bvv")) {
+                net.minecraft.client.gui.GuiScreen parent = owlMultiplayerParent(mc.currentScreen);
+                mc.displayGuiScreen(new crewx.gui.servers.CrewXServerSelector(parent));
+                CrewXBootstrap.log("CrewX server selector replaced Owl multiplayer screen");
             }
             pollMouseBinds(mc);
             if (mc.theWorld == null || mc.thePlayer == null) {
@@ -370,6 +390,27 @@ public final class CrewXRuntimeHooks {
         }
     }
 
+    private static boolean isOwlScreen(net.minecraft.client.gui.GuiScreen screen, String className) {
+        Class<?> type = screen.getClass();
+        return className.equals(type.getName())
+                && type.getSuperclass() != null
+                && "ejr".equals(type.getSuperclass().getName());
+    }
+
+    private static net.minecraft.client.gui.GuiScreen owlMultiplayerParent(
+            net.minecraft.client.gui.GuiScreen screen) {
+        try {
+            java.lang.reflect.Field field = screen.getClass().getDeclaredField("parentScreen");
+            field.setAccessible(true);
+            Object parent = field.get(screen);
+            if (parent instanceof net.minecraft.client.gui.GuiScreen) {
+                return (net.minecraft.client.gui.GuiScreen) parent;
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        return new crewx.gui.CrewXMainMenu();
+    }
+
     public static void onTickPost(Object minecraft) {
         try {
             if (!(minecraft instanceof Minecraft)) {
@@ -378,6 +419,9 @@ public final class CrewXRuntimeHooks {
             Minecraft mc = (Minecraft) minecraft;
             boolean rshiftDown = org.lwjgl.input.Keyboard.isKeyDown(
                     org.lwjgl.input.Keyboard.KEY_RSHIFT);
+            if (!rshiftDown) {
+                keyboardButtons[org.lwjgl.input.Keyboard.KEY_RSHIFT] = false;
+            }
             if (rshiftDown && !rshiftWasDown && !rshiftDispatchedThisTick
                     && mc.currentScreen == null) {
                 CrewXBootstrap.log("RSHIFT physical fallback dispatched");
@@ -527,11 +571,34 @@ public final class CrewXRuntimeHooks {
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
             render2dCount++;
+            long now = System.nanoTime();
+            if (renderRateStart == 0L) {
+                renderRateStart = now;
+                renderRate2dStart = render2dCount;
+                renderRate3dStart = render3dCount;
+            } else if (now - renderRateStart >= 5_000_000_000L) {
+                double seconds = (now - renderRateStart) / 1_000_000_000.0;
+                CrewXBootstrap.log("render cadence: 3d="
+                        + Math.round((render3dCount - renderRate3dStart) / seconds)
+                        + " 2d=" + Math.round((render2dCount - renderRate2dStart) / seconds)
+                        + " extra-world-pass-skipped=" + crewx.util.WorldRenderPass.skipped());
+                renderRateStart = now;
+                renderRate2dStart = render2dCount;
+                renderRate3dStart = render3dCount;
+            }
             EventManager.call(new Render2DEvent(partialTicks));
+            crewx.util.WorldRenderPass.frameBegin();
         } catch (Throwable ignored) {
 
         } finally {
             org.lwjgl.opengl.GL11.glPopMatrix();
+            // a module that threw half-way must not leave a shader bound or the GL state dirty for the next frame
+            try {
+                crewx.util.shader.Shader.releaseIfLeaked();
+                net.minecraft.client.renderer.GlStateManager.enableTexture2D();
+                net.minecraft.client.renderer.GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -708,6 +775,7 @@ public final class CrewXRuntimeHooks {
     }
 
     public static boolean onDefaultBackground(Object screenObject) {
+        if (!crewx.gui.InterfaceSettings.isEnabled()) return false;
         if (!(Minecraft.getMinecraft().currentScreen instanceof net.minecraft.client.gui.GuiMainMenu)
                 || !(screenObject instanceof GuiScreen)) return false;
         GuiScreen screen = (GuiScreen) screenObject;
@@ -1069,14 +1137,22 @@ public final class CrewXRuntimeHooks {
 
 
     public static void onRenderWorld(float partialTicks) {
+        // OptiFine-based clients can read renderHand again after rendering the hand.
+        if (!crewx.util.WorldRenderPass.begin(partialTicks)) return;
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
+            render3dCount++;
+            crewx.util.CameraMatrices.captureWorldPass();
             crewx.util.RenderUtil.updateFrustum();
             EventManager.call(new Render3DEvent(partialTicks));
         } catch (Throwable ignored) {
 
         } finally {
             org.lwjgl.opengl.GL11.glPopMatrix();
+            try {
+                crewx.util.shader.Shader.releaseIfLeaked();
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -1460,6 +1536,12 @@ public final class CrewXRuntimeHooks {
             }
             java.util.List<GuiButton> buttons =
                     (java.util.List<GuiButton>) buttonListField.get(screen);
+            if (!crewx.gui.InterfaceSettings.isEnabled()) {
+                buttons.add(new GuiButton(9810, screen.width - 84, screen.height - 34,
+                        80, 20, "Background"));
+                buttons.add(new GuiButton(9811, 4, 4, 50, 20, "Alts"));
+                return;
+            }
             buttons.clear();
             int wide = Math.min(300, Math.max(220, screen.width / 5));
             int narrow = (wide - 12) / 2;
@@ -1481,6 +1563,16 @@ public final class CrewXRuntimeHooks {
             if (!(screenObject instanceof GuiScreen) || !(buttonObject instanceof GuiButton)) return false;
             GuiButton button = (GuiButton) buttonObject;
             if (!button.enabled) return false;
+            if (button.id == 9810) {
+                crewx.gui.InterfaceSettings.setEnabled(true);
+                Minecraft.getMinecraft().displayGuiScreen(new crewx.gui.CrewXMainMenu());
+                return true;
+            }
+            if (button.id == 9811) {
+                Minecraft.getMinecraft().displayGuiScreen(
+                        new crewx.accountmanager.gui.GuiAccountManager((GuiScreen) screenObject));
+                return true;
+            }
             if (button.id == 1337) {
                 Minecraft.getMinecraft().displayGuiScreen(
                         new crewx.accountmanager.gui.GuiAccountManager((GuiScreen) screenObject));
@@ -1506,6 +1598,7 @@ public final class CrewXRuntimeHooks {
     @SuppressWarnings("unchecked")
     public static boolean onMainMenuDraw(Object screenObject, int mouseX, int mouseY) {
         try {
+            if (!crewx.gui.InterfaceSettings.isEnabled()) return false;
             if (!(screenObject instanceof GuiScreen)) return false;
             GuiScreen screen = (GuiScreen) screenObject;
             crewx.gui.CrewXTheme.drawBackground(screen.width, screen.height);
@@ -1527,6 +1620,7 @@ public final class CrewXRuntimeHooks {
 
     public static boolean onDrawButton(Object buttonObject, int mouseX, int mouseY) {
         try {
+            if (!crewx.gui.InterfaceSettings.isEnabled()) return false;
             if (!(buttonObject instanceof GuiButton)) return false;
             crewx.gui.CrewXTheme.drawButton((GuiButton) buttonObject, mouseX, mouseY);
             return true;
@@ -1801,7 +1895,8 @@ public final class CrewXRuntimeHooks {
             if (packet.getClass().getName().startsWith("net.minecraft.network.play.client")) {
                 return false;
             }
-            if (packet.getClass().getSimpleName().contains("S08PacketPlayerPosLook")
+            if ((packet.getClass().getSimpleName().contains("S08PacketPlayerPosLook")
+                    || (NotchMappings.isNotch() && "fi".equals(packet.getClass().getName())))
                     && positionCorrectionSnapshots < 16
                     && CrewX.moduleManager != null && CrewX.lagManager != null) {
                 Module lagRange = (Module) CrewX.moduleManager.modules.get(

@@ -1,5 +1,7 @@
 package crewx.module.modules.render;
 
+import crewx.util.HitchMonitor;
+
 import crewx.gui.ClientFont;
 import crewx.gui.CategoryIconRenderer;
 import crewx.gui.BindViewer;
@@ -54,7 +56,7 @@ public class HUD extends Module {
         float y;
         boolean placed;
     }
-
+    /** Jello: one small dark box per module, right-aligned stair (as in the reference); Classic: old list. */
     public final ModeProperty arraylistStyle = new ModeProperty("arraylist-style", 0, new String[]{"Jello", "Classic"});
     public final ModeProperty colorMode = new ModeProperty(
             "color", 3, new String[]{"Rainbow", "Chroma", "Astolfo", "Custom1", "Custom2", "Custom3"}
@@ -104,6 +106,8 @@ public class HUD extends Module {
     public final FloatProperty animationSpeed = new FloatProperty("animation-speed", 1.0F, 0.2F, 3.0F,
             () -> this.animations.getValue());
     public final BooleanProperty shadow = new BooleanProperty("shadow", true);
+    /** Frosted-glass blur behind the client's panels (Bind Viewer, scoreboard, chat, media card). Off = lighter on the GPU. */
+    public final BooleanProperty blur = new BooleanProperty("blur", true);
     public final BooleanProperty suffixes = new BooleanProperty("suffixes", true);
     public final BooleanProperty arrayListIcons = new BooleanProperty("arraylist-icons", true);
     public final BooleanProperty lowerCase = new BooleanProperty("lower-case", false);
@@ -331,9 +335,12 @@ public class HUD extends Module {
         GlStateManager.scale(scaleValue, scaleValue, 1.0F);
         GlStateManager.disableDepth();
         float listTopPad = 0.0F;
+        long timed = HitchMonitor.start();
         if (this.watermark.getValue()) {
             listTopPad = this.drawWatermark(now, screenW, screenH, baseX, baseY, rightAlign, bottomAlign, curve, bgAlpha);
         }
+        HitchMonitor.section("HUD watermark", timed);
+        timed = HitchMonitor.start();
         this.updateAnimations(delta);
         int count = this.activeModules.size();
         List<Module> renderOrder = new ArrayList<>(this.activeModules);
@@ -462,14 +469,17 @@ public class HUD extends Module {
             }
         }
 
+        HitchMonitor.section("HUD list", timed);
         GlStateManager.enableDepth();
         GlStateManager.popMatrix();
+        timed = HitchMonitor.start();
         BindViewer.render(this);
+        HitchMonitor.section("Bind Viewer", timed);
     }
-
-
-
-
+    /**
+     * Jello array list: every module sits in its own small dark rounded box; names use the HUD theme colour
+     * (wave modes included) and suffixes a soft grey. Boxes slide in/out from the screen edge.
+     */
     private void drawJelloList(List<Module> renderOrder, long now, float delta, float screenW, float screenH,
                                float baseX, float baseY, float listTopPad, boolean rightAlign, boolean bottomAlign) {
         float fontH = ClientFont.getHeight();
@@ -530,7 +540,7 @@ public class HUD extends Module {
                 ClientFont.drawString(suffixText.toString(), textX + nameW, textY, suffixColor, this.shadow.getValue());
             }
             if (icon) {
-
+                // category symbol at the end of the box, same light tint as the classic list
                 this.drawArrayListIcon(module.getCategory(), textX + textW + ARRAY_ICON_GAP + ARRAY_ICON_SIZE / 2.0F,
                         boxY + boxH / 2.0F, ARRAY_ICON_SIZE, withAlpha(0xE8EDF5, ease));
             }

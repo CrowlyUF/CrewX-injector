@@ -10,7 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-
+/** Guards the Windows helper against the stdin call that froze it (no media was ever reported). */
 public class SmtcScriptTest {
     private static String script() throws Exception {
         try (InputStream in = SmtcScriptTest.class.getResourceAsStream("/assets/crewx/media/smtc.ps1")) {
@@ -26,7 +26,7 @@ public class SmtcScriptTest {
     @Test
     public void mainLoopDoesNotReadConsoleInDirectly() throws Exception {
         String code = script().replaceAll("(?m)#.*$", "");
-
+        // Console.In is a SyncTextReader: its ReadLineAsync() blocks, which stalled the poll loop forever
         assertFalse(code.contains("[Console]::In.ReadLineAsync"));
         assertFalse(code.contains("[Console]::In.ReadLine"));
         assertTrue(code.contains("[Console]::OpenStandardInput()"));

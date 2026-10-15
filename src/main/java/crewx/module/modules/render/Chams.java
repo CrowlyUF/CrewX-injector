@@ -24,12 +24,10 @@ import net.minecraft.entity.passive.EntityBat;
 import net.minecraft.entity.passive.EntitySquid;
 import net.minecraft.entity.passive.EntityVillager;
 import net.minecraft.entity.player.EntityPlayer;
-import org.lwjgl.opengl.GL11;
 
 public class Chams extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
     private static boolean loggedPlayerRender;
-    private static final int GL_POLYGON_OFFSET_FILL = 32823;
     public final ModeProperty mode = new ModeProperty("mode", 0, new String[]{"Offset", "NoDepth"});
     public final BooleanProperty flat = new BooleanProperty("flat", false);
     public final BooleanProperty players = new BooleanProperty("players", true);
@@ -52,7 +50,7 @@ public class Chams extends Module {
         } else if (entityLivingBase instanceof EntityPlayer) {
             if (entityLivingBase != mc.thePlayer && entityLivingBase != mc.getRenderViewEntity()) {
                 AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-                if (antiBot.isEnabled() && antiBot.isBot((EntityPlayer) entityLivingBase)) {
+                if (antiBot.isEnabled() && antiBot.isBotForVisual((EntityPlayer) entityLivingBase)) {
                     return this.bots.getValue();
                 } else if (TeamUtil.isFriend((EntityPlayer) entityLivingBase)) {
                     return this.friends.getValue();
@@ -90,8 +88,15 @@ public class Chams extends Module {
         if (!loggedPlayerRender && event.getType() == crewx.event.types.EventType.PRE
                 && event.getEntity() instanceof EntityPlayer && event.getEntity() != mc.thePlayer) {
             loggedPlayerRender = true;
+            EntityPlayer player = (EntityPlayer) event.getEntity();
+            AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
             CrewXBootstrap.log("Chams player render reached; selected=" + selected
-                    + " mode=" + this.mode.getValue());
+                    + " mode=" + this.mode.getValue()
+                    + " inTab=" + TeamUtil.isInTabList(player)
+                    + " bot=" + (antiBot != null && antiBot.isEnabled() && antiBot.isBotForVisual(player))
+                    + " health=" + player.getHealth()
+                    + " players=" + this.players.getValue()
+                    + " bots=" + this.bots.getValue());
         }
         if (!selected) return;
 
@@ -102,8 +107,8 @@ public class Chams extends Module {
                 if (noDepth) {
                     GlStateManager.disableDepth();
                 } else {
-                    GL11.glEnable(GL_POLYGON_OFFSET_FILL);
-                    GL11.glPolygonOffset(1.0F, -2500000.0F);
+                    GlStateManager.enablePolygonOffset();
+                    GlStateManager.doPolygonOffset(1.0F, -2500000.0F);
                 }
                 if (this.flat.getValue()) {
                     GlStateManager.disableTexture2D();
@@ -116,8 +121,8 @@ public class Chams extends Module {
                 if (noDepth) {
                     GlStateManager.enableDepth();
                 } else {
-                    GL11.glPolygonOffset(1.0F, 2500000.0F);
-                    GL11.glDisable(GL_POLYGON_OFFSET_FILL);
+                    GlStateManager.doPolygonOffset(1.0F, 2500000.0F);
+                    GlStateManager.disablePolygonOffset();
                 }
                 break;
             default:
