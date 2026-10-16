@@ -24,10 +24,12 @@ import net.minecraft.entity.passive.EntityBat;
 import net.minecraft.entity.passive.EntitySquid;
 import net.minecraft.entity.passive.EntityVillager;
 import net.minecraft.entity.player.EntityPlayer;
+import org.lwjgl.opengl.GL11;
 
 public class Chams extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
     private static boolean loggedPlayerRender;
+    private static final int GL_POLYGON_OFFSET_FILL = 32823;
     public final ModeProperty mode = new ModeProperty("mode", 0, new String[]{"Offset", "NoDepth"});
     public final BooleanProperty flat = new BooleanProperty("flat", false);
     public final BooleanProperty players = new BooleanProperty("players", true);
@@ -50,7 +52,9 @@ public class Chams extends Module {
         } else if (entityLivingBase instanceof EntityPlayer) {
             if (entityLivingBase != mc.thePlayer && entityLivingBase != mc.getRenderViewEntity()) {
                 AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-                if (antiBot.isEnabled() && antiBot.isBotForVisual((EntityPlayer) entityLivingBase)) {
+                EntityPlayer player = (EntityPlayer) entityLivingBase;
+                if (!TeamUtil.isInTabList(player)
+                        || (antiBot != null && antiBot.isEnabled() && antiBot.isBotForVisual(player))) {
                     return this.bots.getValue();
                 } else if (TeamUtil.isFriend((EntityPlayer) entityLivingBase)) {
                     return this.friends.getValue();
@@ -107,8 +111,8 @@ public class Chams extends Module {
                 if (noDepth) {
                     GlStateManager.disableDepth();
                 } else {
-                    GlStateManager.enablePolygonOffset();
-                    GlStateManager.doPolygonOffset(1.0F, -2500000.0F);
+                    GL11.glEnable(GL_POLYGON_OFFSET_FILL);
+                    GL11.glPolygonOffset(1.0F, -2500000.0F);
                 }
                 if (this.flat.getValue()) {
                     GlStateManager.disableTexture2D();
@@ -121,8 +125,8 @@ public class Chams extends Module {
                 if (noDepth) {
                     GlStateManager.enableDepth();
                 } else {
-                    GlStateManager.doPolygonOffset(1.0F, 2500000.0F);
-                    GlStateManager.disablePolygonOffset();
+                    GL11.glPolygonOffset(1.0F, 2500000.0F);
+                    GL11.glDisable(GL_POLYGON_OFFSET_FILL);
                 }
                 break;
             default:

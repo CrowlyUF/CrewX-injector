@@ -87,11 +87,10 @@ public final class CrewXRuntimeHooks {
     private static boolean clickGuiFallbackErrorLogged;
     private static boolean itemRenderStateChecked;
     private static String lastTitleScreenClass;
-    private static boolean renderOverlayThisFrame;
+    private static boolean smoothOverlayPass;
 
     public static void onClickGuiFrameBegin() {
         crewx.util.WorldRenderPass.frameBegin();
-        renderOverlayThisFrame = false;
         crewx.util.HitchMonitor.frame();
         crewx.util.TextureGuard.tick();
         clickGuiDrawAtFrameStart = ClickGui.getDrawCount();
@@ -570,14 +569,8 @@ public final class CrewXRuntimeHooks {
     }
 
     public static void onRenderOverlay(float partialTicks) {
-        // Lunar's GuiIngame overlay is drawn on a separate cadence/surface. Its
-        // CrewX 2D event would remain beside the frame event and duplicate the
-        // projected tags and boxes. Use the frame event exclusively there.
-        if (Minecraft.getMinecraft().getClass().getClassLoader().getClass()
-                .getName().startsWith("com.moonsworth.lunar.")) return;
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
-            renderOverlayThisFrame = true;
             render2dCount++;
             long now = System.nanoTime();
             if (renderRateStart == 0L) {
@@ -610,11 +603,27 @@ public final class CrewXRuntimeHooks {
         }
     }
 
+    public static boolean skipNormalSmoothOverlay() {
+        return !smoothOverlayPass && Minecraft.getMinecraft().getClass().getClassLoader().getClass()
+                .getName().startsWith("com.moonsworth.lunar.");
+    }
+
+    /** Draw camera-following visuals exactly once, after the completed world frame. */
     public static void onRenderOverlayFrameFallback(float partialTicks) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (renderOverlayThisFrame || mc.theWorld == null || mc.thePlayer == null
-                || mc.currentScreen != null) return;
-        int matrixMode = org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_MATRIX_MODE);
+        if (mc.theWorld == null || mc.thePlayer == null || mc.currentScreen != null
+                || !mc.getClass().getClassLoader().getClass().getName().startsWith("com.moonsworth.lunar.")) return;
+        if (CrewX.moduleManager == null) return;
+        crewx.module.modules.render.NameTags tags = (crewx.module.modules.render.NameTags)
+                CrewX.moduleManager.modules.get(crewx.module.modules.render.NameTags.class);
+        crewx.module.modules.render.ESP esp = (crewx.module.modules.render.ESP)
+                CrewX.moduleManager.modules.get(crewx.module.modules.render.ESP.class);
+        crewx.module.modules.render.TargetHUD target = (crewx.module.modules.render.TargetHUD)
+                CrewX.moduleManager.modules.get(crewx.module.modules.render.TargetHUD.class);
+        boolean drawTags = tags != null && tags.hasProjectedTags();
+        boolean drawEsp = esp != null && esp.needsSmoothOverlay();
+        boolean drawTarget = target != null && target.needsSmoothOverlay();
+        if (!drawTags && !drawEsp && !drawTarget) return;
         double[] glCache = crewx.util.GlStateSync.snapshot();
         org.lwjgl.opengl.GL11.glPushAttrib(org.lwjgl.opengl.GL11.GL_ALL_ATTRIB_BITS);
         org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
@@ -623,25 +632,22 @@ public final class CrewXRuntimeHooks {
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
             mc.entityRenderer.setupOverlayRendering();
-            renderOverlayThisFrame = true;
-            render2dCount++;
-            EventManager.call(new Render2DEvent(partialTicks));
-            crewx.util.WorldRenderPass.frameBegin();
+            smoothOverlayPass = true;
+            Render2DEvent event = new Render2DEvent(partialTicks);
+            if (drawTags) tags.onRender2D(event);
+            if (drawEsp) esp.onRender2D(event);
+            if (drawTarget) target.onRender(event);
         } catch (Throwable error) {
-            CrewXBootstrap.log("overlay frame fallback FAILED: "
-                    + CrewXBootstrap.describeFailure(error));
+            CrewXBootstrap.log("visual overlay fallback FAILED: " + CrewXBootstrap.describeFailure(error));
         } finally {
-            try {
-                crewx.util.shader.Shader.releaseIfLeaked();
-            } catch (Throwable ignored) {
-            }
+            smoothOverlayPass = false;
+            try { crewx.util.shader.Shader.releaseIfLeaked(); } catch (Throwable ignored) { }
             org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
             org.lwjgl.opengl.GL11.glPopMatrix();
             org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
             org.lwjgl.opengl.GL11.glPopMatrix();
             org.lwjgl.opengl.GL11.glPopAttrib();
             crewx.util.GlStateSync.afterPopAttrib(glCache);
-            org.lwjgl.opengl.GL11.glMatrixMode(matrixMode);
         }
     }
 
@@ -1248,7 +1254,6 @@ public final class CrewXRuntimeHooks {
 
         }
     }
-
 
     public static boolean suppressVanillaName(Object entity) {
         try {

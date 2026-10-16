@@ -138,6 +138,7 @@ public class NameTags extends Module {
     private static final int GOLD = 0xFFF5C542;
     private final float[] projected = new float[3];
     private final List<Tag> tags = new ArrayList<>();
+    public boolean hasProjectedTags() { return this.isEnabled() && !this.tags.isEmpty(); }
     /** Per entity: shown health (slides to the real one) and the lighter "damage trail" that follows it. */
     private final Map<EntityLivingBase, float[]> shownHealth = new WeakHashMap<>();
     private final float[] screenPosition = new float[2];
@@ -174,6 +175,7 @@ public class NameTags extends Module {
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
+        if (crewx.inject.CrewXRuntimeHooks.skipNormalSmoothOverlay()) return;
         long now = System.nanoTime();
         float dt = this.lastFrame == 0L ? 0.016F : Math.max(0.0F, Math.min(0.1F, (now - this.lastFrame) / 1_000_000_000.0F));
         this.lastFrame = now;

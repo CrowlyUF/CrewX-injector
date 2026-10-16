@@ -1,12 +1,12 @@
 package crewx.module.modules.combat;
 
 import crewx.CrewX;
-import crewx.enums.BlinkModules;
 import crewx.event.EventTarget;
+import crewx.event.EventManager;
 import crewx.event.types.EventType;
 import crewx.events.LeftClickMouseEvent;
+import crewx.events.AttackEvent;
 import crewx.events.Render3DEvent;
-import crewx.events.TickEvent;
 import crewx.events.UpdateEvent;
 import crewx.mixin.IAccessorRenderManager;
 import crewx.event.types.Priority;
@@ -16,7 +16,11 @@ import crewx.module.modules.combat.KillAura;
 import crewx.property.properties.BooleanProperty;
 import crewx.property.properties.FloatProperty;
 import crewx.property.properties.ModeProperty;
-import crewx.util.KeyBindUtil;
+import crewx.util.PacketUtil;
+import crewx.util.PlayerUtil;
+import net.minecraft.network.play.client.C02PacketUseEntity;
+import net.minecraft.network.play.client.C02PacketUseEntity.Action;
+import crewx.mixin.IAccessorPlayerControllerMP;
 import java.util.Random;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
@@ -45,12 +49,11 @@ extends Module {
     public final BooleanProperty autoClicker = new BooleanProperty("AutoClicker", false);
     public final BooleanProperty killAura = new BooleanProperty("KillAura", false);
     private long lastAt;
-    private int blinkTicks;
     private int side = -1;
     private int lastSide = -1;
     private boolean rotate;
-    private boolean queued;
-    private boolean replayingClick;
+    private EntityLivingBase pendingManualTarget;
+    private EntityLivingBase preparedAuraTarget;
     private EntityLivingBase lastTarget;
     private long arrowAt;
     private double arrowX;
@@ -65,12 +68,8 @@ extends Module {
 
     @Override
     public void onDisabled() {
-        if (this.blinkTicks > 0) {
-            CrewX.blinkManager.setBlinkState(false, BlinkModules.DISPLACE);
-        }
-        this.blinkTicks = 0;
-        this.replayingClick = false;
-        this.queued = false;
+        this.pendingManualTarget = null;
+        this.preparedAuraTarget = null;
         this.rotate = false;
         this.lastSide = -1;
         this.side = -1;
@@ -149,7 +148,7 @@ extends Module {
         return true;
     }
 
-    private float offset() {
+    private float offset(float baseYaw) {
         float result = ((Float)this.angle.getValue()).floatValue();
         if (this.side >= 0) {
             if (this.side == 0) {
@@ -160,28 +159,15 @@ extends Module {
             result = -result;
         }
         result += RANDOM.nextFloat() * 10.0f - 5.0f;
-        if (((Boolean)this.renderArrow.getValue()).booleanValue() && this.lastTarget != null) {
-            this.setArrow(this.lastTarget, result);
+        if (this.renderArrow.getValue() && this.lastTarget != null) {
+            this.setArrow(this.lastTarget, baseYaw, result);
         }
         return result;
-    }
-
-    private void trigger(boolean fromAura) {
-        if (fromAura) {
-            this.queued = true;
-        } else {
-            this.rotate = true;
-        }
-        this.lastAt = System.currentTimeMillis();
     }
 
     @EventTarget(Priority.HIGHEST)
     public void onLeftClick(LeftClickMouseEvent event) {
         AutoClicker clicker;
-        if (this.replayingClick) {
-            this.replayingClick = false;
-            return;
-        }
         if (!this.isEnabled() || !((Boolean)this.manual.getValue()).booleanValue() || Displace.mc.currentScreen != null || event.isCancelled()) {
             return;
         }
@@ -195,48 +181,65 @@ extends Module {
         Entity entity = hit.entityHit;
         if (this.canDisplace(entity, true, true)) {
             event.setCancelled(true);
-            this.trigger(false);
+            this.pendingManualTarget = (EntityLivingBase) entity;
         } else if (((Boolean)this.overrideAttacks.getValue()).booleanValue() && this.canDisplace(entity, false, false)) {
             event.setCancelled(true);
         }
     }
 
-    @EventTarget
-    public void onTick(TickEvent event) {
-        if (this.isEnabled() && event.getType() == EventType.PRE && this.blinkTicks > 0 && --this.blinkTicks == 0) {
-            CrewX.blinkManager.setBlinkState(false, BlinkModules.DISPLACE);
-        }
-    }
-
     @EventTarget(Priority.LOWEST)
     public void onUpdate(UpdateEvent event) {
-        KillAura aura;
-        if (!this.isEnabled() || event.getType() != EventType.PRE || Displace.mc.thePlayer == null || Displace.mc.theWorld == null) {
+        if (!this.isEnabled() || Displace.mc.thePlayer == null || Displace.mc.theWorld == null) {
+            this.pendingManualTarget = null;
             return;
         }
-        if (((Boolean)this.killAura.getValue()).booleanValue() && (aura = (KillAura)CrewX.moduleManager.modules.get(KillAura.class)) != null && aura.isEnabled() && this.canDisplace((Entity)aura.getTarget(), true, true)) {
-            this.trigger(true);
-        }
-        if (!this.rotate && !this.queued) {
+        if (event.getType() == EventType.POST) {
+            EntityLivingBase target = this.pendingManualTarget;
+            this.pendingManualTarget = null;
+            if (target != null && !target.isDead && Displace.mc.theWorld.loadedEntityList.contains(target)) {
+                Displace.mc.thePlayer.swingItem();
+                EventManager.call(new AttackEvent(target));
+                ((IAccessorPlayerControllerMP) Displace.mc.playerController).callSyncCurrentPlayItem();
+                PacketUtil.sendPacket(new C02PacketUseEntity(target, Action.ATTACK));
+                if (Displace.mc.playerController.getCurrentGameType() != net.minecraft.world.WorldSettings.GameType.SPECTATOR) {
+                    PlayerUtil.attackEntity(target);
+                }
+                this.lastAt = System.currentTimeMillis();
+                this.rotate = true;
+            }
             return;
         }
-        boolean replayManualClick = this.rotate;
-        this.queued = false;
+        if (event.getType() != EventType.PRE || !this.rotate) return;
         this.rotate = false;
-        if (((Boolean)this.hideRotations.getValue()).booleanValue() && CrewX.blinkManager.setBlinkState(true, BlinkModules.DISPLACE)) {
-            this.blinkTicks = 2;
-        }
-        float yaw = Displace.mc.thePlayer.rotationYaw + this.offset();
+        float baseYaw = Displace.mc.thePlayer.rotationYaw;
+        float yaw = baseYaw + this.offset(baseYaw);
         event.setRotation(yaw, Displace.mc.thePlayer.rotationPitch, 2);
         event.setPervRotation(yaw, 2);
-        if (replayManualClick) {
-            this.replayingClick = true;
-            KeyBindUtil.pressKeyOnce(Displace.mc.gameSettings.keyBindAttack.getKeyCode());
-        }
     }
 
-    private void setArrow(EntityLivingBase target, float yawOffset) {
-        double direction = Math.toRadians(Displace.mc.thePlayer.rotationYaw + yawOffset);
+    public boolean prepareKillAuraDisplacement(EntityLivingBase target) {
+        this.preparedAuraTarget = null;
+        if (!this.isEnabled() || !this.killAura.getValue() || !this.canDisplace(target, true, true)) {
+            return false;
+        }
+        this.preparedAuraTarget = target;
+        return true;
+    }
+    public void applyKillAuraDisplacement(UpdateEvent event, EntityLivingBase target) {
+        if (!this.isEnabled() || event == null || event.getType() != EventType.PRE
+                || target == null || target != this.preparedAuraTarget) {
+            this.preparedAuraTarget = null;
+            return;
+        }
+        this.preparedAuraTarget = null;
+        this.lastAt = System.currentTimeMillis();
+        float baseYaw = event.getNewYaw();
+        float yaw = baseYaw + this.offset(baseYaw);
+        event.setRotation(yaw, event.getNewPitch(), 2);
+        event.setPervRotation(yaw, 2);
+    }
+    private void setArrow(EntityLivingBase target, float baseYaw, float yawOffset) {
+        double direction = Math.toRadians(baseYaw + yawOffset);
         this.dirX = -Math.sin(direction);
         this.dirZ = Math.cos(direction);
         this.arrowX = target.posX + this.dirX * 0.8;
@@ -295,4 +298,3 @@ extends Module {
         }
     }
 }
-
