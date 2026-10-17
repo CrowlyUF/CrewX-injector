@@ -2127,20 +2127,19 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                     hooked[0] = true;
                     return new MethodVisitor(ASM9, base) {
                         @Override
-                        public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                    String methodDescriptor, boolean isInterface) {
-                            if (opcode == INVOKEVIRTUAL
-                                    && "net/minecraft/client/renderer/entity/RendererLivingEntity".equals(owner)
-                                    && "renderModel".equals(methodName)
-                                    && "(Lnet/minecraft/entity/EntityLivingBase;FFFFFF)V".equals(methodDescriptor)) {
-                                mv.visitVarInsn(ALOAD, 1);
-                                callHook(mv, "onRenderLivingPre", "(Ljava/lang/Object;)V");
-                                super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
+                        public void visitCode() {
+                            super.visitCode();
+                            mv.visitVarInsn(ALOAD, 1);
+                            callHook(mv, "onRenderLivingPre", "(Ljava/lang/Object;)V");
+                        }
+
+                        @Override
+                        public void visitInsn(int opcode) {
+                            if (opcode == RETURN) {
                                 mv.visitVarInsn(ALOAD, 1);
                                 callHook(mv, "onRenderLivingPost", "(Ljava/lang/Object;)V");
-                                return;
                             }
-                            super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
+                            super.visitInsn(opcode);
                         }
                     };
                 }

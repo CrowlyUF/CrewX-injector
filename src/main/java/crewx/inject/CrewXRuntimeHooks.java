@@ -2047,6 +2047,19 @@ public final class CrewXRuntimeHooks {
                         - (player.renderArmYaw - player.prevRenderArmYaw) * 2.0F;
                 player.renderArmYaw = player.rotationYaw;
             }
+            if (player.ticksExisted % 40 == 0 && crewx.CrewX.moduleManager != null) {
+                crewx.module.modules.player.Scaffold scaffold =
+                        (crewx.module.modules.player.Scaffold) crewx.CrewX.moduleManager.modules.get(
+                                crewx.module.modules.player.Scaffold.class);
+                if (scaffold != null && scaffold.isEnabled()) {
+                    CrewXBootstrap.log("scaffold-hook world=" + System.identityHashCode(player.worldObj)
+                            + " player=" + System.identityHashCode(player)
+                            + " tick=" + player.ticksExisted
+                            + " override=" + state[2] + "," + state[3]
+                            + " camera=" + player.rotationYaw + "," + player.rotationPitch
+                            + " reported=" + getLastReportedYaw(player) + "," + getLastReportedPitch(player));
+                }
+            }
             EventManager.call(new UpdateEvent(EventType.POST,
                     getLastReportedYaw(player), getLastReportedPitch(player),
                     player.rotationYaw, player.rotationPitch));

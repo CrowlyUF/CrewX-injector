@@ -77,7 +77,11 @@ public class ESP extends Module {
             return this.self.getValue() && mc.gameSettings.thirdPersonView != 0;
         }
         AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-        if (antiBot.isEnabled() && antiBot.isBot(entityPlayer) && !TeamUtil.isInTabList(entityPlayer)) return this.bots.getValue();
+        if (antiBot.isEnabled()
+                && (antiBot.isBotForVisual(entityPlayer)
+                || (!TeamUtil.isInTabList(entityPlayer) && antiBot.isBot(entityPlayer)))) {
+            return this.bots.getValue();
+        }
         if (TeamUtil.isFriend(entityPlayer)) return this.friends.getValue();
         return TeamUtil.isTarget(entityPlayer) ? this.enemies.getValue() : this.players.getValue();
     }

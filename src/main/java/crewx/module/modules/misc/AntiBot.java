@@ -9,7 +9,6 @@ import crewx.CrewX;
 import crewx.event.EventTarget;
 import crewx.events.PacketEvent;
 import crewx.module.Module;
-import crewx.util.TeamUtil;
 import crewx.property.properties.BooleanProperty;
 import crewx.property.properties.IntProperty;
 import net.minecraft.client.Minecraft;
@@ -135,9 +134,8 @@ public class AntiBot extends Module {
         return isBot(p, false);
     }
 
-    /** The tab list is the visual modules' source for real players; attributes packets can be absent. */
+    /** Visual checks ignore missing attributes, which are not reliable for new real players. */
     public boolean isBotForVisual(EntityPlayer p) {
-        if (TeamUtil.isInTabList(p)) return false;
         return isBot(p, true);
     }
 

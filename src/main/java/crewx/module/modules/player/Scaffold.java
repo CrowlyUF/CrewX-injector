@@ -6,6 +6,7 @@ import crewx.module.modules.player.*;
 import crewx.module.modules.misc.*;
 
 import crewx.CrewX;
+import crewx.inject.CrewXBootstrap;
 import crewx.enums.BlinkModules;
 import crewx.event.EventTarget;
 import crewx.event.types.EventType;
@@ -673,10 +674,18 @@ public class Scaffold extends Module {
                             this.yaw = RotationUtil.quantizeAngle(diagonalYaw);
                     }
                 }
+                // Telly can request tower rotations while a Godbridge placement ray is already valid.
+                // Keep the placement aim for that tick so the server receives the same ray we tested.
+                boolean godbridgePlacementReady = this.rotationMode.getValue() == 4
+                        && blockData != null && hitVec != null && snapCanPlace;
                 if (this.rotationMode.getValue() != 0 && (!snapMode || this.snapRotating || towerRotating)) {
                     float targetYaw = this.yaw;
                     float targetPitch = this.pitch;
-                    if (this.towering && (mc.thePlayer.motionY > 0.0 || mc.thePlayer.posY > (double) (this.startY + 1))) {
+                    if (godbridgePlacementReady
+                            && (this.keepY.getValue() == 3 || this.keepY.getValue() == 4 || this.tower.getValue() == 3)) {
+                        this.rotationTick = 0;
+                    }
+                    if (!godbridgePlacementReady && this.towering && (mc.thePlayer.motionY > 0.0 || mc.thePlayer.posY > (double) (this.startY + 1))) {
                         float yawDiff = MathHelper.wrapAngleTo180_float(this.yaw - event.getYaw());
                         float tolerance = this.rotationTick >= 2 ? RandomUtil.nextFloat(tellystartrotationminspeed.getValue(), tellystartrotationmaxspeed.getValue()) : RandomUtil.nextFloat(tellynormalrotationminspeed.getValue(), tellynormalrotationmaxspeed.getValue());
                         if (Math.abs(yawDiff) > tolerance) {
@@ -685,7 +694,7 @@ public class Scaffold extends Module {
                             this.rotationTick = Math.max(this.rotationTick, 1);
                         }
                     }
-                    if (towerRotating && this.isTowering()) {
+                    if (!godbridgePlacementReady && towerRotating && this.isTowering()) {
                         float yawDelta = MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw - event.getYaw());
                         targetYaw = RotationUtil.quantizeAngle(event.getYaw() + yawDelta * RandomUtil.nextFloat(0.98F, 0.99F));
                         targetPitch = RotationUtil.quantizeAngle(RandomUtil.nextFloat(30.0F, 80.0F));
@@ -757,6 +766,20 @@ public class Scaffold extends Module {
                             }
                         }
                     }
+                }
+                if (mc.thePlayer.ticksExisted % 40 == 0) {
+                    CrewXBootstrap.log("scaffold-trace world=" + System.identityHashCode(mc.theWorld)
+                            + " player=" + System.identityHashCode(mc.thePlayer)
+                            + " tick=" + mc.thePlayer.ticksExisted
+                            + " mode=" + this.rotationMode.getValue()
+                            + " event=" + event.getYaw() + "," + event.getPitch()
+                            + " desired=" + this.yaw + "," + this.pitch
+                            + " applied=" + event.getNewYaw() + "," + event.getNewPitch()
+                            + " block=" + (blockData != null)
+                            + " hit=" + (hitVec != null)
+                            + " placed=" + this.placedThisTick
+                            + " canRotate=" + this.canRotate
+                            + " rotationTick=" + this.rotationTick);
                 }
             }
         }
