@@ -6,7 +6,6 @@ import crewx.module.modules.player.*;
 import crewx.module.modules.misc.*;
 
 import crewx.CrewX;
-import crewx.inject.CrewXBootstrap;
 import crewx.event.EventTarget;
 import crewx.events.RenderLivingEvent;
 import crewx.module.Module;
@@ -94,7 +93,7 @@ public class Chams extends Module {
             loggedPlayerRender = true;
             EntityPlayer player = (EntityPlayer) event.getEntity();
             AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-            CrewXBootstrap.log("Chams player render reached; selected=" + selected
+            crewx.util.ClientLog.log("Chams player render reached; selected=" + selected
                     + " mode=" + this.mode.getValue()
                     + " inTab=" + TeamUtil.isInTabList(player)
                     + " bot=" + (antiBot != null && antiBot.isEnabled() && antiBot.isBotForVisual(player))

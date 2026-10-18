@@ -175,7 +175,7 @@ public class NameTags extends Module {
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
-        if (crewx.inject.CrewXRuntimeHooks.skipNormalSmoothOverlay()) return;
+        if (crewx.inject.FrameOverlay.deferNormalDraw()) return;
         long now = System.nanoTime();
         float dt = this.lastFrame == 0L ? 0.016F : Math.max(0.0F, Math.min(0.1F, (now - this.lastFrame) / 1_000_000_000.0F));
         this.lastFrame = now;

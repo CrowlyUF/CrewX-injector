@@ -148,7 +148,7 @@ public class TargetHUD extends Module {
 
     @EventTarget
     public void onRender(Render2DEvent event) {
-        if (following() && crewx.inject.CrewXRuntimeHooks.skipNormalSmoothOverlay()) return;
+        if (this.needsSmoothOverlay() && crewx.inject.FrameOverlay.deferNormalDraw()) return;
         if (!this.isEnabled() || mc.thePlayer == null) return;
 
         EntityLivingBase currentTarget = resolveTarget();

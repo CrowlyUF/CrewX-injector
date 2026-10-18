@@ -62,10 +62,6 @@ public class GuiModule extends Module {
             this.clickGui = new ClickGui();
         }
         mc.displayGuiScreen(this.clickGui);
-        if (crewx.inject.NotchMappings.isNotch()) {
-            crewx.inject.CrewXBootstrap.log("ClickGui displayGuiScreen: current="
-                    + (mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getName()));
-        }
     }
     public static Color getAccent() {
         if (CrewX.moduleManager != null) {

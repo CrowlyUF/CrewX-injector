@@ -1,7 +1,6 @@
 package crewx.util;
 
 import net.minecraft.client.renderer.ActiveRenderInfo;
-import crewx.inject.NotchMappings;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.util.glu.GLU;
@@ -52,6 +51,17 @@ public final class CameraMatrices {
         }
     }
 
+    /** Reuse this frame's captured world camera for the outline mask, without another camera setup/readback. */
+    public static boolean applyWorldPass() {
+        if (!worldCaptured) return false;
+        worldProjectionRead.clear(); worldModelRead.clear();
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glLoadMatrix(worldProjectionRead);
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glLoadMatrix(worldModelRead);
+        return true;
+    }
+
     private static boolean resolve() {
         if (modelView != null) return true;
         if (unavailable) return false;
@@ -67,15 +77,14 @@ public final class CameraMatrices {
         } catch (Throwable failure) {
             unavailable = true;
             modelView = null;
-            crewx.inject.CrewXBootstrap.log("CameraMatrices fields unavailable: " + failure);
+            crewx.util.ClientLog.log("CameraMatrices fields unavailable: " + failure);
             return false;
         }
     }
 
     private static Field field(String named, String srg) throws NoSuchFieldException {
         String owner = "net.minecraft.client.renderer.ActiveRenderInfo";
-        String mapped = NotchMappings.fieldName(owner, named);
-        for (String candidate : new String[]{named, srg, mapped}) {
+        for (String candidate : new String[]{named, srg}) {
             try {
                 Field field = ActiveRenderInfo.class.getDeclaredField(candidate);
                 field.setAccessible(true);

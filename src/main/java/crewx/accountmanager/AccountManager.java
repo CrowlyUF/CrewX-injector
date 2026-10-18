@@ -2,7 +2,6 @@ package crewx.accountmanager;
 
 import com.google.gson.*;
 import crewx.accountmanager.auth.Account;
-import crewx.inject.ForgeCompat;
 import crewx.accountmanager.utils.SSLUtils;
 
 import net.minecraft.client.Minecraft;
@@ -57,7 +56,7 @@ public class AccountManager {
 
     public static void init() {
         SSLContext ignored = SSLUtils.getSSLContext();
-        if (ForgeCompat.isPresent()) ForgeBinding.register();
+        ForgeBinding.register();
 
         if (!file.exists()) {
             try {

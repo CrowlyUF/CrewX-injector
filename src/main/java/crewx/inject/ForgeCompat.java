@@ -23,6 +23,19 @@ public final class ForgeCompat {
         }
     }
 
+    public static void registerAccountEvents() {
+        if (!PRESENT) return;
+        try {
+            Class<?> binding = Class.forName("crewx.accountmanager.ForgeBinding", true,
+                    ForgeCompat.class.getClassLoader());
+            Method register = binding.getDeclaredMethod("register");
+            register.setAccessible(true);
+            register.invoke(null);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Could not register CrewX Forge account events", error);
+        }
+    }
+
     public static boolean isPresent() {
         return PRESENT;
     }

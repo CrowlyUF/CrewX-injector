@@ -212,7 +212,7 @@ public class ClickGui extends GuiScreen {
         }
         if (!this.firstFrameLogged) {
             this.firstFrameLogged = true;
-            crewx.inject.CrewXBootstrap.log("ClickGUI first frame");
+            crewx.util.ClientLog.log("ClickGUI first frame");
         }
         long now = System.nanoTime();
         float dt = this.lastFrame == 0L ? 0.016F : (now - this.lastFrame) / 1.0e9F;
@@ -417,16 +417,6 @@ public class ClickGui extends GuiScreen {
         this.tabLineX = approach(this.tabLineX, targetX, this.deltaTime, 16.0F);
         this.tabLineWidth = approach(this.tabLineWidth, targetWidth, this.deltaTime, 16.0F);
         this.round(this.windowX + this.tabLineX, this.windowY + 30.0F, this.tabLineWidth, 2.0F, accentColor().getRGB(), 1.0F);
-        if (crewx.inject.CrewXBootstrap.injectionActive) {
-            boolean confirming = this.destroyConfirmationPending();
-            String mainLabel = confirming ? "Cancel" : "Destroy";
-            float mainX = this.destroyButtonX(mainLabel);
-            this.drawDestroyButton(mainLabel, mainX);
-            if (confirming) {
-                float confirmX = mainX - this.destroyButtonWidth("Confirm Destroy") - 12.0F;
-                this.drawDestroyButton("Confirm Destroy", confirmX);
-            }
-        }
     }
 
     private boolean destroyConfirmationPending() {
@@ -584,7 +574,7 @@ public class ClickGui extends GuiScreen {
             GL13.glActiveTexture(activeUnit);
         }
         if (broken == null) return;
-        crewx.inject.CrewXBootstrap.log("ClickGUI icon textures lost their GL names, reloading " + broken);
+        crewx.util.ClientLog.log("ClickGUI icon textures lost their GL names, reloading " + broken);
         for (String resource : broken) {
 
             GUI_TEXTURE_OBJECTS.remove(resource);
@@ -937,14 +927,14 @@ public class ClickGui extends GuiScreen {
                             pendingConfigImport = selected;
                         }
                     } catch (final Throwable error) {
-                        crewx.inject.CrewXBootstrap.log("Config picker failed: "
+                        crewx.util.ClientLog.log("Config picker failed: "
                                 + error);
                         configPickerFailed = true;
                     }
                 }
             });
         } catch (Throwable error) {
-            crewx.inject.CrewXBootstrap.log("Config picker startup failed: "
+            crewx.util.ClientLog.log("Config picker startup failed: "
                     + error);
             this.setConfigImportStatus("Could not open the file picker.");
         }
@@ -982,7 +972,7 @@ public class ClickGui extends GuiScreen {
             }
 
             String original = source.getName().substring(0, source.getName().length() - 5);
-            String safeName = original.replaceAll("[^A-Za-z0-9 _-]", "_").trim();
+            String safeName = original.replaceAll("[^A-Za-z0-9 _()-]", "_").trim();
             if (safeName.isEmpty() || ".".equals(safeName) || "..".equals(safeName)) safeName = "imported-config";
             if ("default".equalsIgnoreCase(safeName)) safeName += "-imported";
             if (safeName.length() > 75) safeName = safeName.substring(0, 75).trim();
@@ -997,7 +987,7 @@ public class ClickGui extends GuiScreen {
             this.configScroll = 0.0F;
             this.setConfigImportStatus("Imported: " + this.configName(target));
         } catch (Exception error) {
-            crewx.inject.CrewXBootstrap.log("Config import failed: "
+            crewx.util.ClientLog.log("Config import failed: "
                     + error);
             this.setConfigImportStatus("Could not import the selected config.");
         }
@@ -1025,6 +1015,7 @@ public class ClickGui extends GuiScreen {
                 this.refreshConfigs();
             }
         } catch (Throwable error) {
+            crewx.util.ClientLog.log("Config load failed (" + name + "): " + error);
             this.setConfigImportStatus("Could not apply config: " + name);
         }
     }
@@ -1187,23 +1178,6 @@ public class ClickGui extends GuiScreen {
         if (mx >= this.windowX && mx <= this.windowX + this.windowWidth
                 && my >= this.windowY && my <= this.windowY + HEADER_HEIGHT) {
             if (mouseButton == 0) {
-                if (crewx.inject.CrewXBootstrap.injectionActive) {
-                    boolean confirming = this.destroyConfirmationPending();
-                    String mainLabel = confirming ? "Cancel" : "Destroy";
-                    float mainX = this.destroyButtonX(mainLabel);
-                    float confirmX = mainX - this.destroyButtonWidth("Confirm Destroy") - 12.0F;
-                    if (confirming && this.destroyButtonHit("Confirm Destroy", confirmX, mx, my)) {
-                        this.unloadConfirmUntil = 0L;
-                        if (!crewx.inject.CrewXNative.urq()) {
-                            crewx.inject.CrewXBootstrap.log("unload request could not start");
-                        }
-                        return;
-                    }
-                    if (this.destroyButtonHit(mainLabel, mainX, mx, my)) {
-                        this.unloadConfirmUntil = confirming ? 0L : System.currentTimeMillis() + 5000L;
-                        return;
-                    }
-                }
                 float modulesX = this.modulesTabX();
                 float configsX = this.configsTabX();
                 String modulesLabel = this.headerLabel(ViewTab.MODULES);

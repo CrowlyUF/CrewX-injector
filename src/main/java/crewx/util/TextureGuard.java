@@ -173,6 +173,6 @@ public final class TextureGuard {
         manager.loadTexture(location, fresh);   // same location: everything that binds it by name gets the fixed one
         entry.texture = fresh;
         repairs++;
-        crewx.inject.CrewXBootstrap.log("TextureGuard: " + location + " had lost its image on the GPU, uploaded again");
+        crewx.util.ClientLog.log("TextureGuard: " + location + " had lost its image on the GPU, uploaded again");
     }
 }

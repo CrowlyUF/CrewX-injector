@@ -135,8 +135,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                     patched = transformEntityPlayer(original);
                     break;
                 case "net/minecraft/util/MovementInputFromOptions":
-                    patched = transformMovementInput(original);
-                    break;
+                    return null;
                 case "net/minecraft/entity/EntityLivingBase":
                     patched = transformEntityLivingBase(original);
                     break;
@@ -1235,7 +1234,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                                 mv.visitVarInsn(FLOAD, 1);
                                 callHook(mv, "onClickGuiRenderFallback", "(F)V");
                                 mv.visitVarInsn(FLOAD, 1);
-                                callHook(mv, "onRenderOverlayFrameFallback", "(F)V");
+                                callHook(mv, "onFrameOverlay", "(F)V");
                             }
                             super.visitInsn(opcode);
                         }
@@ -1476,6 +1475,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
         final boolean[] walking = new boolean[1];
         final boolean[] update = new boolean[1];
         final int[] rotationApplySites = new int[1];
+        final int[] walkingApplySites = new int[1];
         byte[] current = rewrite(original, output -> new ClassVisitor(ASM9, output) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String descriptor,
@@ -1483,20 +1483,12 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                 MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
                 if ("onUpdateWalkingPlayer".equals(name) && "()V".equals(descriptor)) {
                     walking[0] = true;
-                    return new MethodVisitor(ASM9, base) {
-                        @Override
-                        public void visitCode() {
-                            super.visitCode();
-                            rotationApplySites[0]++;
-                            mv.visitVarInsn(ALOAD, 0);
-                            callHook(mv, "onUpdateApply", "(Ljava/lang/Object;)V");
-                            callHook(mv, "onPlayerUpdate", "()V");
-                        }
-                    };
+                    return base;
                 }
                 if ("onUpdate".equals(name) && "()V".equals(descriptor)) {
                     update[0] = true;
                     return new MethodVisitor(ASM9, base) {
+                        private boolean appliedAtRiding;
                         @Override
                         public void visitCode() {
                             super.visitCode();
@@ -1506,6 +1498,21 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                         @Override
                         public void visitMethodInsn(int opcode, String owner, String calledName,
                                                     String calledDescriptor, boolean isInterface) {
+                            if (opcode == INVOKEVIRTUAL && "isRiding".equals(calledName)
+                                    && "()Z".equals(calledDescriptor)) {
+                                rotationApplySites[0]++;
+                                appliedAtRiding = true;
+                                callHook(mv, "isRidingDuringUpdate", "(Ljava/lang/Object;)Z");
+                                return;
+                            }
+                            if ("onUpdateWalkingPlayer".equals(calledName) && "()V".equals(calledDescriptor)) {
+                                if (!appliedAtRiding) {
+                                    mv.visitVarInsn(ALOAD, 0);
+                                    callHook(mv, "onUpdateApply", "(Ljava/lang/Object;)V");
+                                    walkingApplySites[0]++;
+                                }
+                                callHook(mv, "onPlayerUpdate", "()V");
+                            }
                             super.visitMethodInsn(opcode, owner, calledName, calledDescriptor,
                                     isInterface);
                         }
@@ -1520,7 +1527,17 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                     };
                 }
                 if ("onLivingUpdate".equals(name) && "()V".equals(descriptor)) {
-                    return redirectNoSlow(redirectPotionChecks(base));
+                    return new MethodVisitor(ASM9, redirectNoSlow(redirectPotionChecks(base))) {
+                        @Override public void visitMethodInsn(int opcode, String owner, String calledName, String calledDescriptor, boolean isInterface) {
+                            if (opcode == INVOKESPECIAL && "onLivingUpdate".equals(calledName) && "()V".equals(calledDescriptor)) {
+                                callHook(mv, "onLivingUpdate", "()V");
+                            }
+                            super.visitMethodInsn(opcode, owner, calledName, calledDescriptor, isInterface);
+                            if ("updatePlayerMoveState".equals(calledName) && "()V".equals(calledDescriptor)) {
+                                callHook(mv, "onMoveInput", "()V");
+                            }
+                        }
+                    };
                 }
                 return base;
             }
@@ -1533,7 +1550,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
             }
         }
         CrewXBootstrap.log("transform: EntityPlayerSP rotation apply sites="
-                + rotationApplySites[0]);
+                + rotationApplySites[0] + " walking fallback=" + walkingApplySites[0]);
         return current;
     }
 
@@ -1581,16 +1598,6 @@ public final class CrewXRuntimeTransformer implements Opcodes {
             public MethodVisitor visitMethod(int access, String name, String descriptor,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
-                if ("onLivingUpdate".equals(name) && "()V".equals(descriptor)) {
-                    living[0] = true;
-                    return new MethodVisitor(ASM9, base) {
-                        @Override
-                        public void visitCode() {
-                            super.visitCode();
-                            callHook(mv, "onLivingUpdate", "()V");
-                        }
-                    };
-                }
                 if ("attackTargetEntityWithCurrentItem".equals(name)
                         && "(Lnet/minecraft/entity/Entity;)V".equals(descriptor)) {
                     attack[0] = true;
@@ -1662,6 +1669,20 @@ public final class CrewXRuntimeTransformer implements Opcodes {
             public MethodVisitor visitMethod(int access, String name, String descriptor,
                                              String signature, String[] exceptions) {
                 MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if ("jump".equals(name) && "()V".equals(descriptor)) {
+                    return new MethodVisitor(ASM9, base) {
+                        private boolean adjusted;
+                        @Override public void visitVarInsn(int opcode, int variable) {
+                            if (opcode == FSTORE && !adjusted) {
+                                adjusted = true;
+                                mv.visitVarInsn(ALOAD, 0);
+                                mv.visitInsn(SWAP);
+                                callHook(mv, "adjustJumpYaw", "(Ljava/lang/Object;F)F");
+                            }
+                            super.visitVarInsn(opcode, variable);
+                        }
+                    };
+                }
                 if ("getArmSwingAnimationEnd".equals(name) && "()I".equals(descriptor)) {
                     swingDuration[0] = true;
                     return new MethodVisitor(ASM9, base) {
@@ -1955,28 +1976,32 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                         }
                     };
                 }
-                if ("moveEntity".equals(name) && "(DDD)V".equals(descriptor)) {
-                    safewalk[0] = true;
+                if ("setAngles".equals(name) && "(FF)V".equals(descriptor)) {
                     return new MethodVisitor(ASM9, base) {
-                        @Override
-                        public void visitCode() {
-                            super.visitCode();
-                            mv.visitVarInsn(ALOAD, 0);
-                            mv.visitVarInsn(DLOAD, 1);
-                            mv.visitVarInsn(DLOAD, 3);
-                            mv.visitVarInsn(DLOAD, 5);
-                            callHook(mv, "onSafeWalkMotion", "(Ljava/lang/Object;DDD)[D");
-                            mv.visitInsn(DUP);
-                            mv.visitInsn(ICONST_0);
-                            mv.visitInsn(DALOAD);
-                            mv.visitVarInsn(DSTORE, 1);
-                            mv.visitInsn(DUP);
-                            mv.visitInsn(ICONST_1);
-                            mv.visitInsn(DALOAD);
-                            mv.visitVarInsn(DSTORE, 3);
-                            mv.visitInsn(ICONST_2);
-                            mv.visitInsn(DALOAD);
-                            mv.visitVarInsn(DSTORE, 5);
+                        @Override public void visitCode() {
+                            super.visitCode(); mv.visitVarInsn(ALOAD, 0);
+                            callHook(mv, "onSetAngles", "(Ljava/lang/Object;)Z");
+                            Label resume = new Label(); mv.visitJumpInsn(IFEQ, resume);
+                            mv.visitInsn(RETURN); mv.visitLabel(resume); mv.visitFrame(F_SAME, 0, null, 0, null);
+                        }
+                    };
+                }
+                if ("moveEntity".equals(name) && "(DDD)V".equals(descriptor)) {
+                    return new MethodVisitor(ASM9, base) {
+                        private boolean adjusted, sneakSeen;
+                        @Override public void visitMethodInsn(int opcode, String owner, String calledName,
+                                                              String calledDesc, boolean itf) {
+                            if ("isSneaking".equals(calledName) && "()Z".equals(calledDesc)) sneakSeen = true;
+                            super.visitMethodInsn(opcode, owner, calledName, calledDesc, itf);
+                        }
+                        @Override public void visitVarInsn(int opcode, int variable) {
+                            if (opcode == ISTORE && !adjusted
+                                    && (flagIndex[0] >= 0 ? variable == flagIndex[0] : sneakSeen)) {
+                                adjusted = true; safewalk[0] = true;
+                                mv.visitVarInsn(ALOAD, 0); mv.visitInsn(SWAP);
+                                callHook(mv, "onSafeWalkCheck", "(Ljava/lang/Object;Z)Z");
+                            }
+                            super.visitVarInsn(opcode, variable);
                         }
                     };
                 }

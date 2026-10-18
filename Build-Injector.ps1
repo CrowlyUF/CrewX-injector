@@ -45,7 +45,7 @@ foreach ($taskModule in @('asm', 'asm-commons', 'asm-tree')) {
 $taskAsmCp = $taskAsmJars -join ';'
 $taskClasses = Join-Path $taskRoot 'build-tools'
 New-Item -ItemType Directory -Path $taskClasses -Force | Out-Null
-& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java')
+& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java') (Join-Path $taskTools 'PayloadCompatibilityCheck.java')
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar as ferramentas de empacotamento.' }
 
 $taskLibs = Join-Path $taskJavaProject 'build\libs'
@@ -69,6 +69,9 @@ $taskMappings = Join-Path $taskJavaProject 'src\main\resources\crewx\inject'
     (Join-Path $taskMappings 'notch-methods.csv') `
     (Join-Path $taskMappings 'notch-fields.csv')
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload Badlion.' }
+
+& $taskJava -cp "$taskClasses;$taskAsmCp" PayloadCompatibilityCheck $taskForgePayload $taskNamedPayload $taskNotchPayload
+if ($LASTEXITCODE -ne 0) { throw 'Falha na verificacao de compatibilidade Forge/Lunar.' }
 
 $taskBuild = Join-Path $taskRoot 'native-build'
 $taskCmake = (Get-Command cmake.exe -ErrorAction SilentlyContinue).Source

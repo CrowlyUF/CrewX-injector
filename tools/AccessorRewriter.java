@@ -87,8 +87,28 @@ public final class AccessorRewriter {
                         if (opcode == Opcodes.CHECKCAST && type.startsWith(ACCESSOR)) return;
                         super.visitTypeInsn(opcode, type);
                     }
+                    @Override public void visitFieldInsn(int opcode, String owner, String field, String descriptor) {
+                        if (opcode == Opcodes.PUTSTATIC && owner.equals("net/minecraftforge/common/ForgeModContainer")
+                                && field.equals("forgeLightPipelineEnabled") && descriptor.equals("Z")) {
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "crewx/inject/ForgeCompat", "setLightPipeline", "(Z)V", false);
+                            return;
+                        }
+                        super.visitFieldInsn(opcode, owner, field, descriptor);
+                    }
                     @Override public void visitMethodInsn(int opcode, String owner, String method,
                                                            String descriptor, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && owner.equals("crewx/accountmanager/ForgeBinding")
+                                && method.equals("register") && descriptor.equals("()V")) {
+                            super.visitMethodInsn(opcode, "crewx/inject/ForgeCompat", "registerAccountEvents", descriptor, false);
+                            return;
+                        }
+                        if (opcode == Opcodes.INVOKESTATIC
+                                && owner.equals("net/minecraftforge/common/ForgeHooks")
+                                && method.equals("onPlayerAttackTarget")) {
+                            super.visitMethodInsn(opcode, "crewx/inject/ForgeCompat", "allowPlayerAttack", descriptor, false);
+                            return;
+                        }
                         if (opcode != Opcodes.INVOKEINTERFACE || !owner.startsWith(ACCESSOR)) {
                             super.visitMethodInsn(opcode, owner, method, descriptor, isInterface);
                             return;

@@ -77,11 +77,7 @@ public class ESP extends Module {
             return this.self.getValue() && mc.gameSettings.thirdPersonView != 0;
         }
         AntiBot antiBot = (AntiBot) CrewX.moduleManager.modules.get(AntiBot.class);
-        if (antiBot.isEnabled()
-                && (antiBot.isBotForVisual(entityPlayer)
-                || (!TeamUtil.isInTabList(entityPlayer) && antiBot.isBot(entityPlayer)))) {
-            return this.bots.getValue();
-        }
+        if (antiBot.isEnabled() && antiBot.isBot(entityPlayer) && !TeamUtil.isInTabList(entityPlayer)) return this.bots.getValue();
         if (TeamUtil.isFriend(entityPlayer)) return this.friends.getValue();
         return TeamUtil.isTarget(entityPlayer) ? this.enemies.getValue() : this.players.getValue();
     }
@@ -145,7 +141,7 @@ public class ESP extends Module {
 
     @EventTarget(Priority.HIGH)
     public void onRender2D(Render2DEvent event) {
-        if (needsSmoothOverlay() && crewx.inject.CrewXRuntimeHooks.skipNormalSmoothOverlay()) return;
+        if (crewx.inject.FrameOverlay.deferNormalDraw()) return;
         if (!this.isEnabled()) return;
 
         int modeVal = this.mode.getValue();
@@ -167,7 +163,9 @@ public class ESP extends Module {
                 this.framebuffer = new Framebuffer(mc.displayWidth, mc.displayHeight, false);
             }
             this.framebuffer.bindFramebuffer(false);
-            ((IAccessorEntityRenderer) mc.entityRenderer).callSetupCameraTransform(event.getPartialTicks(), 0);
+            if (!crewx.util.CameraMatrices.applyWorldPass()) {
+                ((IAccessorEntityRenderer) mc.entityRenderer).callSetupCameraTransform(event.getPartialTicks(), 0);
+            }
             boolean shadow = mc.gameSettings.entityShadows;
             mc.gameSettings.entityShadows = false;
             this.outline = false;

@@ -40,6 +40,16 @@ static jclass g_capture_class = NULL;
 static unsigned char *g_capture_bytes = NULL;
 static jint g_capture_length = 0;
 
+/* Serialized with g_capture_lock. JNI global refs survive the JVMTI callback. */
+static jclass g_direct_target = NULL;
+static jclass g_direct_bridge = NULL;
+static jstring g_direct_name = NULL;
+static jmethodID g_direct_transform = NULL;
+static unsigned char *g_direct_bytes = NULL;
+static jint g_direct_length = 0;
+static jint g_direct_error = 0;
+
+
 #define CREWX_MAX_PERSISTENT_PATCHES 96
 typedef struct {
     jclass klass;
@@ -618,6 +628,60 @@ static void JNICALL class_file_load_hook(
             || class_data_len <= 0) {
         return;
     }
+    if (g_direct_target != NULL
+            && (*env)->IsSameObject(env, class_being_redefined, g_direct_target)) {
+        jbyteArray input = (*env)->NewByteArray(env, class_data_len);
+        jbyteArray output = NULL;
+        unsigned char *replacement = NULL;
+        if (input == NULL) {
+            g_direct_error = JVMTI_ERROR_OUT_OF_MEMORY;
+            if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+            return;
+        }
+        (*env)->SetByteArrayRegion(env, input, 0, class_data_len, (const jbyte *)class_data);
+        if (!(*env)->ExceptionCheck(env)) {
+            output = (jbyteArray)(*env)->CallStaticObjectMethod(env, g_direct_bridge,
+                    g_direct_transform, class_being_redefined, g_direct_name, input);
+        }
+        if ((*env)->ExceptionCheck(env)) {
+            crewx_log_pending_exception(env, L"direct JVMTI transformation");
+            g_direct_error = JVMTI_ERROR_INTERNAL;
+        } else if (output == NULL) {
+            g_direct_error = JVMTI_ERROR_ABSENT_INFORMATION;
+        } else {
+            jint length = (*env)->GetArrayLength(env, output);
+            if (length <= 0) {
+                g_direct_error = JVMTI_ERROR_INVALID_CLASS_FORMAT;
+            } else if ((*g_jvmti)->Allocate(g_jvmti, length, &replacement) != JVMTI_ERROR_NONE
+                    || replacement == NULL) {
+                g_direct_error = JVMTI_ERROR_OUT_OF_MEMORY;
+            } else {
+                unsigned char *saved = (unsigned char *)HeapAlloc(GetProcessHeap(), 0, (SIZE_T)length);
+                if (saved == NULL) {
+                    (*g_jvmti)->Deallocate(g_jvmti, replacement);
+                    g_direct_error = JVMTI_ERROR_OUT_OF_MEMORY;
+                } else {
+                    (*env)->GetByteArrayRegion(env, output, 0, length, (jbyte *)replacement);
+                    if ((*env)->ExceptionCheck(env)) {
+                        (*env)->ExceptionClear(env);
+                        (*g_jvmti)->Deallocate(g_jvmti, replacement);
+                        HeapFree(GetProcessHeap(), 0, saved);
+                        g_direct_error = JVMTI_ERROR_INTERNAL;
+                    } else {
+                        memcpy(saved, replacement, (size_t)length);
+                        g_direct_bytes = saved;
+                        g_direct_length = length;
+                        *new_class_data = replacement;
+                        *new_class_data_len = length;
+                    }
+                }
+            }
+        }
+        if (output != NULL) (*env)->DeleteLocalRef(env, output);
+        (*env)->DeleteLocalRef(env, input);
+        if (g_direct_error == 0) return;
+        /* A failed callback must retain an already-installed patch. */
+    }
     if (g_capture_class != NULL
             && (*env)->IsSameObject(env, class_being_redefined, g_capture_class)) {
         copy = (unsigned char *)HeapAlloc(GetProcessHeap(), 0, (SIZE_T)class_data_len);
@@ -702,6 +766,74 @@ static jint JNICALL native_scb(
     return error;
 }
 
+
+static jint JNICALL native_trc(JNIEnv *env, jclass bridge, jclass target, jstring logical_name) {
+    jvmtiError result = JVMTI_ERROR_NONE;
+    jint slot;
+    if (g_jvmti == NULL || target == NULL || logical_name == NULL)
+        return JVMTI_ERROR_INVALID_ENVIRONMENT;
+    AcquireSRWLockExclusive(&g_capture_lock);
+    AcquireSRWLockExclusive(&g_patch_lock);
+    for (slot = 0; slot < g_patch_count; ++slot)
+        if ((*env)->IsSameObject(env, target, g_patches[slot].klass)) break;
+    if (slot == CREWX_MAX_PERSISTENT_PATCHES) {
+        ReleaseSRWLockExclusive(&g_patch_lock);
+        ReleaseSRWLockExclusive(&g_capture_lock);
+        return JVMTI_ERROR_OUT_OF_MEMORY;
+    }
+    ReleaseSRWLockExclusive(&g_patch_lock);
+    g_direct_target = (jclass)(*env)->NewGlobalRef(env, target);
+    g_direct_bridge = (jclass)(*env)->NewGlobalRef(env, bridge);
+    g_direct_name = (jstring)(*env)->NewGlobalRef(env, logical_name);
+    g_direct_transform = (*env)->GetStaticMethodID(env, bridge, "transformForInjection",
+            "(Ljava/lang/Class;Ljava/lang/String;[B)[B");
+    g_direct_bytes = NULL;
+    g_direct_length = 0;
+    g_direct_error = 0;
+    if (g_direct_target == NULL || g_direct_bridge == NULL || g_direct_name == NULL
+            || g_direct_transform == NULL || (*env)->ExceptionCheck(env)) {
+        if ((*env)->ExceptionCheck(env))
+            crewx_log_pending_exception(env, L"resolve direct transformation callback");
+        result = JVMTI_ERROR_INTERNAL;
+        goto cleanup;
+    }
+    result = (*g_jvmti)->SetEventNotificationMode(g_jvmti, JVMTI_ENABLE,
+            JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, NULL);
+    if (result == JVMTI_ERROR_NONE)
+        result = (*g_jvmti)->RetransformClasses(g_jvmti, 1, &target);
+    if (result == JVMTI_ERROR_NONE && g_direct_error != 0) result = g_direct_error;
+    if (result == JVMTI_ERROR_NONE && g_direct_bytes == NULL)
+        result = JVMTI_ERROR_ABSENT_INFORMATION;
+    if (result == JVMTI_ERROR_NONE) {
+        AcquireSRWLockExclusive(&g_patch_lock);
+        if (slot == g_patch_count) {
+            /* Transfer the target global ref to the retained patch entry. */
+            g_patches[slot].klass = g_direct_target;
+            g_direct_target = NULL;
+            ++g_patch_count;
+        } else if (g_patches[slot].bytes != NULL) {
+            HeapFree(GetProcessHeap(), 0, g_patches[slot].bytes);
+        }
+        g_patches[slot].bytes = g_direct_bytes;
+        g_patches[slot].length = g_direct_length;
+        g_direct_bytes = NULL;
+        ReleaseSRWLockExclusive(&g_patch_lock);
+    }
+cleanup:
+    if (g_direct_target != NULL) (*env)->DeleteGlobalRef(env, g_direct_target);
+    if (g_direct_bridge != NULL) (*env)->DeleteGlobalRef(env, g_direct_bridge);
+    if (g_direct_name != NULL) (*env)->DeleteGlobalRef(env, g_direct_name);
+    if (g_direct_bytes != NULL) HeapFree(GetProcessHeap(), 0, g_direct_bytes);
+    g_direct_target = NULL;
+    g_direct_bridge = NULL;
+    g_direct_name = NULL;
+    g_direct_transform = NULL;
+    g_direct_bytes = NULL;
+    g_direct_length = 0;
+    ReleaseSRWLockExclusive(&g_capture_lock);
+    crewx_log(L"direct callback retransform result=%d", result);
+    return result;
+}
 
 static jint JNICALL native_mbl(JNIEnv *env, jclass bridge, jclass target,
         jstring method_name, jstring signature) {
@@ -805,6 +937,7 @@ static jint register_native_bridge(JNIEnv *env, jobject loader) {
     JNINativeMethod methods[] = {
         {"gcb", "(Ljava/lang/Class;)[B", (void *)native_gcb},
         {"scb", "(Ljava/lang/Class;[B)I", (void *)native_scb},
+        {"trc", "(Ljava/lang/Class;Ljava/lang/String;)I", (void *)native_trc},
         {"mbl", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/String;)I", (void *)native_mbl},
         {"urq", "()Z", (void *)native_urq},
     };
@@ -829,7 +962,7 @@ static jint register_native_bridge(JNIEnv *env, jobject loader) {
         crewx_log_pending_exception(env, L"RegisterNatives CrewXNative");
         return result;
     }
-    crewx_log(L"registered CrewXNative methods (gcb/scb)");
+    crewx_log(L"registered CrewXNative methods (trc callback + gcb/scb restore)");
     return JNI_OK;
 }
 

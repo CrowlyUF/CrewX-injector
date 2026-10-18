@@ -78,6 +78,7 @@ dependencies {
     shadowImpl("org.luaj:luaj-jse:3.0.1")
     shadowImpl("com.github.Vatuu:discord-rpc:1.6.2")
 
+
     shadowImpl("org.ow2.asm:asm-commons:9.7")
 
     runtimeOnly("me.djtheredstoner:DevAuth-forge-legacy:1.2.1")

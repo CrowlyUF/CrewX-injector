@@ -6,7 +6,6 @@ import crewx.module.modules.player.*;
 import crewx.module.modules.misc.*;
 
 import crewx.CrewX;
-import crewx.inject.CrewXBootstrap;
 import crewx.enums.BlinkModules;
 import crewx.event.EventTarget;
 import crewx.event.types.EventType;
@@ -117,6 +116,32 @@ public class Scaffold extends Module {
     private boolean kaizenMultiplaceNotified = false;
     private int previousPerspective = 0;
     private boolean perspectiveChanged = false;
+    private net.minecraft.client.entity.EntityPlayerSP placementPlayer;
+    private net.minecraft.client.multiplayer.WorldClient placementWorld;
+
+    private void resetPlacementState() {
+        this.stage = 0;
+        this.startY = mc.thePlayer != null ? MathHelper.floor_double(mc.thePlayer.posY) : 256;
+        this.shouldKeepY = false;
+        this.targetFacing = null;
+        this.canRotate = false;
+        this.yaw = -180.0F;
+        this.pitch = 0.0F;
+        this.rotationTick = 3;
+        this.towerTick = 0;
+        this.towerDelay = 0;
+        this.towering = false;
+        this.blockCount = -1;
+        this.placedThisTick = false;
+        this.snapRotating = false;
+        this.lastSnapPlaceYaw = Float.NaN;
+        this.lastSnapPlacePitch = Float.NaN;
+        this.safeStuckTicks = 0;
+        this.safeStuckDelayTicks = 0;
+        this.safePrevMotionY = 0.0;
+        this.safeStuckActive = false;
+        CrewX.blinkManager.setBlinkState(false, BlinkModules.SCAFFOLD_SAFE_STUCK);
+    }
 
     private boolean isKaizenServer() {
         try {
@@ -169,7 +194,7 @@ public class Scaffold extends Module {
         for (EnumFacing facing : EnumFacing.VALUES) {
             if (facing != EnumFacing.DOWN) {
                 BlockPos pos = blockPos1.offset(facing);
-                if (pos.getY() <= blockPos3.getY()) {
+                if (pos.getY() <= blockPos3.getY() && BlockUtil.isReplaceable(pos)) {
                     double distance = pos.distanceSqToCenter((double) blockPos3.getX() + 0.5, (double) blockPos3.getY() + 0.5, (double) blockPos3.getZ() + 0.5);
                     if (enumFacing == null || distance < offset || distance == offset && facing == EnumFacing.UP) {
                         offset = distance;
@@ -208,6 +233,7 @@ public class Scaffold extends Module {
                                     BlockPos blockPos = pos.offset(facing);
                                     if (BlockUtil.isReplaceable(blockPos)) {
                                         positions.add(pos);
+                                        break;
                                     }
                                 }
                             }
@@ -223,9 +249,13 @@ public class Scaffold extends Module {
                                 o -> o.distanceSqToCenter((double) targetPos.getX() + 0.5, (double) targetPos.getY() + 0.5, (double) targetPos.getZ() + 0.5)
                         )
                 );
-                BlockPos blockPos = positions.get(0);
-                EnumFacing facing = this.getBestFacing(blockPos, targetPos);
-                return facing == null ? null : new BlockData(blockPos, facing);
+                for (BlockPos blockPos : positions) {
+                    EnumFacing facing = this.getBestFacing(blockPos, targetPos);
+                    if (facing != null) {
+                        return new BlockData(blockPos, facing);
+                    }
+                }
+                return null;
             }
         }
     }
@@ -419,6 +449,16 @@ public class Scaffold extends Module {
     @EventTarget(Priority.HIGH)
     public void onUpdate(UpdateEvent event) {
         if (this.isEnabled() && event.getType() == EventType.PRE) {
+            if (mc.thePlayer == null || mc.theWorld == null || mc.thePlayer.isDead) {
+                this.placementPlayer = null;
+                this.placementWorld = null;
+                return;
+            }
+            if (this.placementPlayer != mc.thePlayer || this.placementWorld != mc.theWorld) {
+                this.resetPlacementState();
+                this.placementPlayer = mc.thePlayer;
+                this.placementWorld = mc.theWorld;
+            }
             this.updateAutoThirdPerson();
             this.enforceKaizenMultiplaceFlag();
             this.placedThisTick = false;
@@ -674,18 +714,10 @@ public class Scaffold extends Module {
                             this.yaw = RotationUtil.quantizeAngle(diagonalYaw);
                     }
                 }
-                // Telly can request tower rotations while a Godbridge placement ray is already valid.
-                // Keep the placement aim for that tick so the server receives the same ray we tested.
-                boolean godbridgePlacementReady = this.rotationMode.getValue() == 4
-                        && blockData != null && hitVec != null && snapCanPlace;
                 if (this.rotationMode.getValue() != 0 && (!snapMode || this.snapRotating || towerRotating)) {
                     float targetYaw = this.yaw;
                     float targetPitch = this.pitch;
-                    if (godbridgePlacementReady
-                            && (this.keepY.getValue() == 3 || this.keepY.getValue() == 4 || this.tower.getValue() == 3)) {
-                        this.rotationTick = 0;
-                    }
-                    if (!godbridgePlacementReady && this.towering && (mc.thePlayer.motionY > 0.0 || mc.thePlayer.posY > (double) (this.startY + 1))) {
+                    if (this.towering && (mc.thePlayer.motionY > 0.0 || mc.thePlayer.posY > (double) (this.startY + 1))) {
                         float yawDiff = MathHelper.wrapAngleTo180_float(this.yaw - event.getYaw());
                         float tolerance = this.rotationTick >= 2 ? RandomUtil.nextFloat(tellystartrotationminspeed.getValue(), tellystartrotationmaxspeed.getValue()) : RandomUtil.nextFloat(tellynormalrotationminspeed.getValue(), tellynormalrotationmaxspeed.getValue());
                         if (Math.abs(yawDiff) > tolerance) {
@@ -694,7 +726,7 @@ public class Scaffold extends Module {
                             this.rotationTick = Math.max(this.rotationTick, 1);
                         }
                     }
-                    if (!godbridgePlacementReady && towerRotating && this.isTowering()) {
+                    if (towerRotating && this.isTowering()) {
                         float yawDelta = MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw - event.getYaw());
                         targetYaw = RotationUtil.quantizeAngle(event.getYaw() + yawDelta * RandomUtil.nextFloat(0.98F, 0.99F));
                         targetPitch = RotationUtil.quantizeAngle(RandomUtil.nextFloat(30.0F, 80.0F));
@@ -766,20 +798,6 @@ public class Scaffold extends Module {
                             }
                         }
                     }
-                }
-                if (mc.thePlayer.ticksExisted % 40 == 0) {
-                    CrewXBootstrap.log("scaffold-trace world=" + System.identityHashCode(mc.theWorld)
-                            + " player=" + System.identityHashCode(mc.thePlayer)
-                            + " tick=" + mc.thePlayer.ticksExisted
-                            + " mode=" + this.rotationMode.getValue()
-                            + " event=" + event.getYaw() + "," + event.getPitch()
-                            + " desired=" + this.yaw + "," + this.pitch
-                            + " applied=" + event.getNewYaw() + "," + event.getNewPitch()
-                            + " block=" + (blockData != null)
-                            + " hit=" + (hitVec != null)
-                            + " placed=" + this.placedThisTick
-                            + " canRotate=" + this.canRotate
-                            + " rotationTick=" + this.rotationTick);
                 }
             }
         }
@@ -1081,6 +1099,9 @@ public class Scaffold extends Module {
 
     @Override
     public void onEnabled() {
+        this.resetPlacementState();
+        this.placementPlayer = mc.thePlayer;
+        this.placementWorld = mc.theWorld;
         if (mc.thePlayer != null) {
             this.lastSlot = mc.thePlayer.inventory.currentItem;
         } else {
@@ -1115,6 +1136,8 @@ public class Scaffold extends Module {
 
     @Override
     public void onDisabled() {
+        this.placementPlayer = null;
+        this.placementWorld = null;
         if (mc.thePlayer != null && this.lastSlot != -1) {
             mc.thePlayer.inventory.currentItem = this.lastSlot;
         }

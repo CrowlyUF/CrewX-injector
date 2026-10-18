@@ -31,6 +31,20 @@ import net.minecraft.client.resources.IResourcePack;
 public final class CrewXBootstrap {
 
     private static final Map<Class<?>, byte[]> ORIGINAL_HOOKS = new LinkedHashMap<>();
+    private static final Map<Class<?>, byte[][]> PENDING_HOOKS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    // Called synchronously by ClassFileLoadHook with the bytes supplied by the JVM.
+    public static byte[] transformForInjection(Class<?> target, String className, byte[] original) {
+        byte[] named = NotchMappings.isNotch() ? NotchMappings.toNamed(original)
+                : NotchMappings.isSrg() ? NotchMappings.srgToNamed(original) : original;
+        byte[] patched = CrewXRuntimeTransformer.transform(className.replace('.', '/'), named);
+        if (patched == null) return null;
+        if (NotchMappings.isNotch()) patched = NotchMappings.toNotch(patched);
+        else if (NotchMappings.isSrg()) patched = NotchMappings.namedToSrg(patched);
+        PENDING_HOOKS.put(target, new byte[][] {original, patched});
+        return patched;
+    }
+
     private static volatile boolean unloadStarted;
     public static volatile boolean injectionActive;
     private static IResourcePack installedResourcePack;
@@ -59,7 +73,6 @@ public final class CrewXBootstrap {
             "net.minecraft.client.entity.AbstractClientPlayer",
             "net.minecraft.client.entity.EntityPlayerSP",
             "net.minecraft.entity.player.EntityPlayer",
-            "net.minecraft.util.MovementInputFromOptions",
             "net.minecraft.entity.EntityLivingBase",
             "net.minecraft.client.multiplayer.PlayerControllerMP",
             "net.minecraft.network.NetworkManager",
@@ -324,25 +337,16 @@ public final class CrewXBootstrap {
         for (String className : RUNTIME_HOOK_TARGETS) {
             try {
                 Class<?> target = Class.forName(NotchMappings.className(className), false, loader);
-                byte[] original = CrewXNative.gcb(target);
-                if (original == null || original.length < 4) {
-                    log("hook SKIP " + className + ": no bytecode captured");
+                int result = CrewXNative.trc(target, className);
+                byte[][] captured = PENDING_HOOKS.remove(target);
+                if (captured == null) {
+                    log("hook SKIP " + className + ": callback produced no patch, JVMTI=" + result);
                     continue;
                 }
-                byte[] namedOriginal = NotchMappings.isNotch()
-                        ? NotchMappings.toNamed(original)
-                        : NotchMappings.isSrg() ? NotchMappings.srgToNamed(original) : original;
-                byte[] patched = CrewXRuntimeTransformer.transform(
-                        className.replace('.', '/'), namedOriginal);
-                if (patched == null) {
-                    log("hook SKIP " + className + ": no patch produced");
-                    continue;
-                }
-                if (NotchMappings.isNotch()) patched = NotchMappings.toNotch(patched);
-                else if (NotchMappings.isSrg()) patched = NotchMappings.namedToSrg(patched);
-                int result = CrewXNative.scb(target, patched);
+                byte[] original = captured[0];
+                byte[] patched = captured[1];
                 if (result == 0) ORIGINAL_HOOKS.put(target, original);
-                log("hook " + className + ": scb=" + result
+                log("hook " + className + ": callback-retransform=" + result
                         + " (" + original.length + " -> " + patched.length + " bytes)");
                 if (NotchMappings.isNotch()
                         && "net.minecraft.client.Minecraft".equals(className)) {

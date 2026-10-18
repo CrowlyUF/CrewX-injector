@@ -36,7 +36,7 @@ public class Config {
     }
 
     private static boolean validName(String name) {
-        return name != null && name.matches("[A-Za-z0-9 _-]{1,80}");
+        return name != null && name.matches("[A-Za-z0-9 _()-]{1,80}");
     }
 
     public static String activeName() {

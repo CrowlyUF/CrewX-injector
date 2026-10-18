@@ -85,11 +85,13 @@ public final class CrewXRuntimeHooks {
     private static long clickGuiDrawAtFrameStart;
     private static boolean clickGuiFallbackLogged;
     private static boolean clickGuiFallbackErrorLogged;
+    private static boolean frameOverlayFailureLogged;
     private static boolean itemRenderStateChecked;
     private static String lastTitleScreenClass;
-    private static boolean smoothOverlayPass;
 
     public static void onClickGuiFrameBegin() {
+        Minecraft frameClient = Minecraft.getMinecraft();
+        FrameOverlay.beginFrame(frameClient.theWorld != null && frameClient.thePlayer != null && frameClient.currentScreen == null);
         crewx.util.WorldRenderPass.frameBegin();
         crewx.util.HitchMonitor.frame();
         crewx.util.TextureGuard.tick();
@@ -175,6 +177,7 @@ public final class CrewXRuntimeHooks {
     }
 
     static void resetAfterUnload() {
+        FrameOverlay.reset();
         initialized = false;
         initializationFailed = false;
         tickCounter = 0;
@@ -572,20 +575,22 @@ public final class CrewXRuntimeHooks {
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
             render2dCount++;
-            long now = System.nanoTime();
-            if (renderRateStart == 0L) {
-                renderRateStart = now;
-                renderRate2dStart = render2dCount;
-                renderRate3dStart = render3dCount;
-            } else if (now - renderRateStart >= 5_000_000_000L) {
-                double seconds = (now - renderRateStart) / 1_000_000_000.0;
-                CrewXBootstrap.log("render cadence: 3d="
-                        + Math.round((render3dCount - renderRate3dStart) / seconds)
-                        + " 2d=" + Math.round((render2dCount - renderRate2dStart) / seconds)
-                        + " extra-world-pass-skipped=" + crewx.util.WorldRenderPass.skipped());
-                renderRateStart = now;
-                renderRate2dStart = render2dCount;
-                renderRate3dStart = render3dCount;
+            if (Boolean.getBoolean("crewx.audit")) {
+                long now = System.nanoTime();
+                if (renderRateStart == 0L) {
+                    renderRateStart = now;
+                    renderRate2dStart = render2dCount;
+                    renderRate3dStart = render3dCount;
+                } else if (now - renderRateStart >= 5_000_000_000L) {
+                    double seconds = (now - renderRateStart) / 1_000_000_000.0;
+                    CrewXBootstrap.log("render cadence: 3d="
+                            + Math.round((render3dCount - renderRate3dStart) / seconds)
+                            + " 2d=" + Math.round((render2dCount - renderRate2dStart) / seconds)
+                            + " extra-world-pass-skipped=" + crewx.util.WorldRenderPass.skipped());
+                    renderRateStart = now;
+                    renderRate2dStart = render2dCount;
+                    renderRate3dStart = render3dCount;
+                }
             }
             EventManager.call(new Render2DEvent(partialTicks));
             crewx.util.WorldRenderPass.frameBegin();
@@ -603,28 +608,17 @@ public final class CrewXRuntimeHooks {
         }
     }
 
-    public static boolean skipNormalSmoothOverlay() {
-        return !smoothOverlayPass && Minecraft.getMinecraft().getClass().getClassLoader().getClass()
-                .getName().startsWith("com.moonsworth.lunar.");
-    }
-
-    /** Draw camera-following visuals exactly once, after the completed world frame. */
-    public static void onRenderOverlayFrameFallback(float partialTicks) {
+    public static void onFrameOverlay(float partialTicks) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.theWorld == null || mc.thePlayer == null || mc.currentScreen != null
-                || !mc.getClass().getClassLoader().getClass().getName().startsWith("com.moonsworth.lunar.")) return;
-        if (CrewX.moduleManager == null) return;
-        crewx.module.modules.render.NameTags tags = (crewx.module.modules.render.NameTags)
-                CrewX.moduleManager.modules.get(crewx.module.modules.render.NameTags.class);
-        crewx.module.modules.render.ESP esp = (crewx.module.modules.render.ESP)
-                CrewX.moduleManager.modules.get(crewx.module.modules.render.ESP.class);
-        crewx.module.modules.render.TargetHUD target = (crewx.module.modules.render.TargetHUD)
-                CrewX.moduleManager.modules.get(crewx.module.modules.render.TargetHUD.class);
-        boolean drawTags = tags != null && tags.hasProjectedTags();
-        boolean drawEsp = esp != null && esp.needsSmoothOverlay();
-        boolean drawTarget = target != null && target.needsSmoothOverlay();
-        if (!drawTags && !drawEsp && !drawTarget) return;
-        double[] glCache = crewx.util.GlStateSync.snapshot();
+        if (CrewX.moduleManager == null || mc.theWorld == null || mc.thePlayer == null || mc.currentScreen != null) return;
+        crewx.module.modules.render.NameTags tags = (crewx.module.modules.render.NameTags) CrewX.moduleManager.modules.get(crewx.module.modules.render.NameTags.class);
+        crewx.module.modules.render.ESP esp = (crewx.module.modules.render.ESP) CrewX.moduleManager.modules.get(crewx.module.modules.render.ESP.class);
+        crewx.module.modules.render.TargetHUD hud = (crewx.module.modules.render.TargetHUD) CrewX.moduleManager.modules.get(crewx.module.modules.render.TargetHUD.class);
+        boolean drawTags=tags!=null && tags.hasProjectedTags();
+        boolean drawEsp=esp!=null && esp.needsSmoothOverlay();
+        boolean drawHud=hud!=null && hud.needsSmoothOverlay();
+        if ((!drawTags && !drawEsp && !drawHud) || !FrameOverlay.beginDraw()) return;
+        double[] savedState=crewx.util.GlStateSync.snapshot();
         org.lwjgl.opengl.GL11.glPushAttrib(org.lwjgl.opengl.GL11.GL_ALL_ATTRIB_BITS);
         org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
         org.lwjgl.opengl.GL11.glPushMatrix();
@@ -632,22 +626,25 @@ public final class CrewXRuntimeHooks {
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
             mc.entityRenderer.setupOverlayRendering();
-            smoothOverlayPass = true;
-            Render2DEvent event = new Render2DEvent(partialTicks);
-            if (drawTags) tags.onRender2D(event);
-            if (drawEsp) esp.onRender2D(event);
-            if (drawTarget) target.onRender(event);
+            Render2DEvent event=new Render2DEvent(partialTicks);
+            if(drawTags)tags.onRender2D(event);
+            if(drawEsp)esp.onRender2D(event);
+            if(drawHud)hud.onRender(event);
         } catch (Throwable error) {
-            CrewXBootstrap.log("visual overlay fallback FAILED: " + CrewXBootstrap.describeFailure(error));
+            if (!frameOverlayFailureLogged) {
+                frameOverlayFailureLogged = true;
+                CrewXBootstrap.log("Frame overlay FAILED: " + CrewXBootstrap.describeFailure(error));
+            }
         } finally {
-            smoothOverlayPass = false;
-            try { crewx.util.shader.Shader.releaseIfLeaked(); } catch (Throwable ignored) { }
+            try { crewx.util.shader.Shader.releaseIfLeaked(); } catch(Throwable ignored) {}
             org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
             org.lwjgl.opengl.GL11.glPopMatrix();
             org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_PROJECTION);
             org.lwjgl.opengl.GL11.glPopMatrix();
+            org.lwjgl.opengl.GL11.glMatrixMode(org.lwjgl.opengl.GL11.GL_MODELVIEW);
             org.lwjgl.opengl.GL11.glPopAttrib();
-            crewx.util.GlStateSync.afterPopAttrib(glCache);
+            crewx.util.GlStateSync.afterPopAttrib(savedState);
+            FrameOverlay.endDraw();
         }
     }
 
@@ -1194,6 +1191,7 @@ public final class CrewXRuntimeHooks {
             crewx.util.CameraMatrices.captureWorldPass();
             crewx.util.RenderUtil.updateFrustum();
             EventManager.call(new Render3DEvent(partialTicks));
+            FrameOverlay.worldReady();
         } catch (Throwable ignored) {
 
         } finally {
@@ -1276,6 +1274,10 @@ public final class CrewXRuntimeHooks {
 
 
 
+    public static boolean onSetAngles(Object entity) {
+        return entity instanceof EntityPlayerSP && CrewX.rotationManager != null && CrewX.rotationManager.isRotated();
+    }
+
     public static boolean onSafeWalkCheck(Object entity, boolean flag) {
         try {
             if (!(entity instanceof EntityPlayerSP)) {
@@ -1288,48 +1290,6 @@ public final class CrewXRuntimeHooks {
             return flag;
         }
     }
-
-    public static double[] onSafeWalkMotion(Object entity, double x, double y, double z) {
-        double[] motion = new double[]{x, y, z};
-        try {
-            if (!(entity instanceof EntityPlayerSP)) {
-                return motion;
-            }
-            EntityPlayerSP player = (EntityPlayerSP) entity;
-            CrewXAudit.mark("safewalk-event");
-
-
-            SafeWalkEvent event = new SafeWalkEvent(((Entity) player).onGround && player.isSneaking());
-            EventManager.call(event);
-            if (!event.isSafeWalk() || player.worldObj == null) {
-                return motion;
-            }
-            CrewXAudit.mark("safewalk-active");
-            final double step = 0.05D;
-            while (x != 0.0D && player.worldObj.getCollidingBoundingBoxes(player,
-                    player.getEntityBoundingBox().offset(x, -1.0D, 0.0D)).isEmpty()) {
-                x = Math.abs(x) < step ? 0.0D : x + (x > 0.0D ? -step : step);
-            }
-            while (z != 0.0D && player.worldObj.getCollidingBoundingBoxes(player,
-                    player.getEntityBoundingBox().offset(0.0D, -1.0D, z)).isEmpty()) {
-                z = Math.abs(z) < step ? 0.0D : z + (z > 0.0D ? -step : step);
-            }
-            while (x != 0.0D && z != 0.0D && player.worldObj.getCollidingBoundingBoxes(player,
-                    player.getEntityBoundingBox().offset(x, -1.0D, z)).isEmpty()) {
-                x = Math.abs(x) < step ? 0.0D : x + (x > 0.0D ? -step : step);
-                z = Math.abs(z) < step ? 0.0D : z + (z > 0.0D ? -step : step);
-            }
-            motion[0] = x;
-            motion[2] = z;
-        } catch (Throwable error) {
-            if (!safeWalkFailureLogged) {
-                safeWalkFailureLogged = true;
-                CrewXBootstrap.log("SafeWalk runtime FAILED: " + CrewXBootstrap.describeFailure(error));
-            }
-        }
-        return motion;
-    }
-
 
     public static boolean forceChamsRenderRange(Object entity, double distanceSquared) {
         try {
@@ -2014,6 +1974,17 @@ public final class CrewXRuntimeHooks {
     }
 
 
+
+    public static boolean isRidingDuringUpdate(Object playerObject) {
+        onUpdateApply(playerObject);
+        return ((EntityPlayerSP) playerObject).isRiding();
+    }
+
+    public static float adjustJumpYaw(Object entity, float original) {
+        return entity instanceof EntityPlayerSP && RotationState.isActived()
+                ? RotationState.getSmoothedYaw() * (float) (Math.PI / 180.0) : original;
+    }
+
     public static void onUpdateApply(Object playerObject) {
         if (!(playerObject instanceof EntityPlayerSP)) return;
         EntityPlayerSP player = (EntityPlayerSP) playerObject;
@@ -2046,19 +2017,6 @@ public final class CrewXRuntimeHooks {
                 player.prevRenderArmYaw = player.rotationYaw
                         - (player.renderArmYaw - player.prevRenderArmYaw) * 2.0F;
                 player.renderArmYaw = player.rotationYaw;
-            }
-            if (player.ticksExisted % 40 == 0 && crewx.CrewX.moduleManager != null) {
-                crewx.module.modules.player.Scaffold scaffold =
-                        (crewx.module.modules.player.Scaffold) crewx.CrewX.moduleManager.modules.get(
-                                crewx.module.modules.player.Scaffold.class);
-                if (scaffold != null && scaffold.isEnabled()) {
-                    CrewXBootstrap.log("scaffold-hook world=" + System.identityHashCode(player.worldObj)
-                            + " player=" + System.identityHashCode(player)
-                            + " tick=" + player.ticksExisted
-                            + " override=" + state[2] + "," + state[3]
-                            + " camera=" + player.rotationYaw + "," + player.rotationPitch
-                            + " reported=" + getLastReportedYaw(player) + "," + getLastReportedPitch(player));
-                }
             }
             EventManager.call(new UpdateEvent(EventType.POST,
                     getLastReportedYaw(player), getLastReportedPitch(player),
