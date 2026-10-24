@@ -160,7 +160,7 @@ public class BedNuker extends Module {
 
     private float getDigSpeed(IBlockState iBlockState, int slot, boolean boolean5) {
         ItemStack item = mc.thePlayer.inventory.getStackInSlot(slot);
-        float digSpeed = item == null ? 1.0F : item.getItem().getDigSpeed(item, iBlockState);
+        float digSpeed = item == null ? 1.0F : item.getStrVsBlock(iBlockState.getBlock());
         if (digSpeed > 1.0F) {
             int enchantmentLevel = EnchantmentHelper.getEnchantmentLevel(Enchantment.efficiency.effectId, item);
             if (enchantmentLevel > 0) {

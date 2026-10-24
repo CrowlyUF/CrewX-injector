@@ -20,11 +20,13 @@ public final class NotchMappings {
     private static final Mapping MAPPING = load();
     private static Boolean notch;
     private static Boolean srg;
+    private static Boolean cheatBreaker;
 
     private NotchMappings() {
     }
 
     public static synchronized boolean isNotch() {
+        if (isCheatBreaker()) return false;
         if (notch == null) {
             try {
                 ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -54,13 +56,31 @@ public final class NotchMappings {
         return notch.booleanValue();
     }
 
+    public static synchronized boolean isCheatBreaker() {
+        if (cheatBreaker == null) {
+            ClassLoader loader = Thread.currentThread().getContextClassLoader();
+            if (loader == null) loader = NotchMappings.class.getClassLoader();
+            try {
+                Class<?> minecraft = Class.forName(CheatBreakerMappings.MINECRAFT_CLASS,
+                        false, loader);
+                minecraft.getDeclaredMethod(CheatBreakerMappings.GET_MINECRAFT);
+                cheatBreaker = Boolean.TRUE;
+            } catch (Throwable ignored) {
+                cheatBreaker = Boolean.FALSE;
+            }
+        }
+        return cheatBreaker.booleanValue();
+    }
+
     public static String className(String named) {
+        if (isCheatBreaker()) return CheatBreakerMappings.className(named);
         if (!isNotch()) return named;
         String internal = named.replace('.', '/');
         return MAPPING.namedToObf.getOrDefault(internal, internal).replace('/', '.');
     }
 
     public static String methodName(String owner, String name, String descriptor) {
+        if (isCheatBreaker()) return CheatBreakerMappings.methodName(owner, name, descriptor);
         if (!isNotch()) {
             if (!isSrg()) return name;
             return MAPPING.namedSrgMethods.getOrDefault(
@@ -71,6 +91,7 @@ public final class NotchMappings {
     }
 
     public static String fieldName(String owner, String name) {
+        if (isCheatBreaker()) return CheatBreakerMappings.fieldName(owner, name);
         if (!isNotch()) {
             if (!isSrg()) return name;
             return MAPPING.namedSrgFields.getOrDefault(owner.replace('.', '/') + "/" + name, name);
@@ -89,6 +110,7 @@ public final class NotchMappings {
 
     public static boolean matchesMethod(String namedName, Method candidate) {
         if (namedName.equals(candidate.getName())) return true;
+        if (isCheatBreaker()) return CheatBreakerMappings.matchesMethod(namedName, candidate);
         if (!isNotch()) {
             if (!isSrg()) return false;
             String key = candidate.getDeclaringClass().getName().replace('.', '/')
@@ -101,10 +123,12 @@ public final class NotchMappings {
     }
 
     public static byte[] toNamed(byte[] notchBytes) {
+        if (isCheatBreaker()) return CheatBreakerMappings.toNamed(notchBytes);
         return remap(notchBytes, MAPPING.toNamed);
     }
 
     public static boolean isSrg() {
+        if (isCheatBreaker()) return false;
         if (isNotch()) return false;
         if (srg == null) {
             try {
@@ -128,12 +152,15 @@ public final class NotchMappings {
     }
 
     public static byte[] toNotch(byte[] namedBytes) {
+        if (isCheatBreaker()) return CheatBreakerMappings.toCheatBreaker(namedBytes);
         return remap(namedBytes, MAPPING.toNotch);
     }
 
     public static byte[] namedResourceBytes(String namedInternal, ClassLoader loader)
             throws IOException {
-        String obfuscated = MAPPING.namedToObf.get(namedInternal);
+        String obfuscated = isCheatBreaker()
+                ? CheatBreakerMappings.classInternalName(namedInternal)
+                : MAPPING.namedToObf.get(namedInternal);
         if (obfuscated == null) return null;
         InputStream input = loader.getResourceAsStream(obfuscated + ".class");
         if (input == null) return null;

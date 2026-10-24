@@ -33,6 +33,18 @@ import crewx.module.modules.player.AntiDebuff;
 import crewx.module.modules.player.AutoTool;
 import crewx.module.modules.movement.KeepSprint;
 import crewx.module.modules.movement.NoSlow;
+import crewx.module.modules.movement.AntiAFK;
+import crewx.module.modules.movement.Fly;
+import crewx.module.modules.movement.Speed;
+import crewx.module.modules.movement.BridgeAssist;
+import crewx.module.modules.movement.LongJump;
+import crewx.module.modules.combat.TargetStrafe;
+import crewx.module.modules.player.InvWalk;
+import crewx.module.modules.player.Scaffold;
+import crewx.module.modules.player.AutoHeadHitter;
+import crewx.module.modules.player.AutoBlockIn;
+import crewx.module.modules.misc.BedNuker;
+import crewx.module.modules.combat.AntiFireball;
 import crewx.module.modules.render.Animations;
 import crewx.module.modules.render.NoHurtCam;
 import crewx.module.modules.render.Accessories;
@@ -129,6 +141,9 @@ public final class CrewXRuntimeHooks {
     private static volatile long tickPreCount;
     private static volatile long keyCount;
     private static volatile boolean firstTickSeen;
+    private static volatile boolean firstWorldTickSeen;
+    private static volatile boolean firstWorldUpdateSeen;
+    private static volatile boolean firstOverlaySeen;
     private static volatile boolean firstFrameSeen;
     private static volatile boolean rshiftWasDown;
     private static volatile boolean rshiftDispatchedThisTick;
@@ -164,7 +179,10 @@ public final class CrewXRuntimeHooks {
     private static volatile Field leftClickCounterField;
     private static final boolean[] mouseButtons = new boolean[32];
     private static final boolean[] keyboardButtons = new boolean[256];
+    private static final boolean[] consumedMouseButtons = new boolean[32];
+    private static final boolean[] consumedKeyboardButtons = new boolean[256];
     private static final long[] keyboardDispatchTick = new long[256];
+    private static boolean unintendedMovementLogged;
     private static volatile Field itemToRenderField;
     private static volatile Field equippedProgressField;
     private static volatile Field prevEquippedProgressField;
@@ -188,7 +206,10 @@ public final class CrewXRuntimeHooks {
         ROTATION.clear();
         java.util.Arrays.fill(mouseButtons, false);
         java.util.Arrays.fill(keyboardButtons, false);
+        java.util.Arrays.fill(consumedMouseButtons, false);
+        java.util.Arrays.fill(consumedKeyboardButtons, false);
         java.util.Arrays.fill(keyboardDispatchTick, 0L);
+        unintendedMovementLogged = false;
     }
 
     private static Field gameField(Class<?> type, String namedOwner, String name)
@@ -352,6 +373,7 @@ public final class CrewXRuntimeHooks {
                 return;
             }
             Minecraft mc = (Minecraft) minecraft;
+            crewx.gui.BlurController.closeIfScreenChanged(mc.currentScreen);
             if (mc.theWorld == null) {
                 String screenClass = mc.currentScreen == null
                         ? "<none>" : mc.currentScreen.getClass().getName();
@@ -361,13 +383,22 @@ public final class CrewXRuntimeHooks {
                 }
                 if (!crewx.gui.InterfaceSettings.isEnabled()
                         && "net.badlion.a.aPU".equals(screenClass)) {
-                    mc.displayGuiScreen(new net.minecraft.client.gui.GuiMainMenu());
+                    try {
+                        Class<?> menuType = Class.forName(NotchMappings.className(
+                                "net.minecraft.client.gui.GuiMainMenu"), false,
+                                Minecraft.class.getClassLoader());
+                        mc.displayGuiScreen((GuiScreen) menuType.newInstance());
+                    } catch (Throwable error) {
+                        CrewXBootstrap.log("standard main menu unavailable: " + error);
+                    }
                 }
                 if (mc.currentScreen != null
                         && crewx.gui.InterfaceSettings.isEnabled()
                         && !(mc.currentScreen instanceof crewx.gui.CrewXMainMenu)
                         && (screenClass.toLowerCase(java.util.Locale.ROOT).contains("mainmenu")
                                 || "net.badlion.a.aPU".equals(screenClass)
+                                || (NotchMappings.isCheatBreaker()
+                                        && "IlIIIIIlIIIIlIlllIIlIlIII".equals(screenClass))
                                 || isOwlScreen(mc.currentScreen, "fae"))) {
                     mc.displayGuiScreen(new crewx.gui.CrewXMainMenu());
                     CrewXBootstrap.log("CrewX main menu replaced " + screenClass);
@@ -383,6 +414,11 @@ public final class CrewXRuntimeHooks {
             pollMouseBinds(mc);
             if (mc.theWorld == null || mc.thePlayer == null) {
                 return;
+            }
+            if (!firstWorldTickSeen) {
+                firstWorldTickSeen = true;
+                CrewXBootstrap.log("first in-world tick: player=" + mc.thePlayer.getClass().getName()
+                        + " world=" + mc.theWorld.getClass().getName());
             }
             tickPreCount++;
             if (Boolean.getBoolean("crewx.audit") && tickPreCount % 600 == 1) {
@@ -459,10 +495,31 @@ public final class CrewXRuntimeHooks {
         }
     }
 
+    /** A GUI consumed this press; keep its bind latched until the physical release. */
+    public static void consumeBindPress(int keyCode) {
+        if (keyCode > 0 && keyCode < keyboardButtons.length) {
+            consumedKeyboardButtons[keyCode] = true;
+            keyboardButtons[keyCode] = true;
+            keyboardDispatchTick[keyCode] = tickPreCount;
+        } else if (keyCode < 0) {
+            int button = keyCode + 100;
+            if (button >= 0 && button < mouseButtons.length) {
+                consumedMouseButtons[button] = true;
+                mouseButtons[button] = true;
+            }
+        }
+    }
+
     public static void onKey(int keyCode, boolean pressed) {
         try {
             int mouseButton = keyCode + 100;
             if (keyCode < 0 && mouseButton >= 0 && mouseButton < mouseButtons.length) {
+                if (consumedMouseButtons[mouseButton]) {
+                    boolean down = Mouse.isButtonDown(mouseButton);
+                    consumedMouseButtons[mouseButton] = down;
+                    mouseButtons[mouseButton] = down;
+                    return;
+                }
                 if (!pressed) {
                     mouseButtons[mouseButton] = false;
                     return;
@@ -471,6 +528,12 @@ public final class CrewXRuntimeHooks {
                 mouseButtons[mouseButton] = true;
             }
             if (keyCode > 0 && keyCode < keyboardButtons.length) {
+                if (consumedKeyboardButtons[keyCode]) {
+                    boolean down = org.lwjgl.input.Keyboard.isKeyDown(keyCode);
+                    consumedKeyboardButtons[keyCode] = down;
+                    keyboardButtons[keyCode] = down;
+                    return;
+                }
                 if (!pressed) {
                     keyboardButtons[keyCode] = false;
                     return;
@@ -517,6 +580,11 @@ public final class CrewXRuntimeHooks {
             int count = Math.min(Mouse.getButtonCount(), mouseButtons.length);
             for (int button = 0; button < count; button++) {
                 boolean down = Mouse.isButtonDown(button);
+                if (consumedMouseButtons[button]) {
+                    consumedMouseButtons[button] = down;
+                    mouseButtons[button] = down;
+                    continue;
+                }
                 if (down && !mouseButtons[button] && mc.currentScreen == null) {
                     CrewXAudit.mark("mouse-bind-" + button);
                     onKey(button - 100, true);
@@ -538,6 +606,11 @@ public final class CrewXRuntimeHooks {
                 if (key <= 0 || key >= keyboardButtons.length
                         || key == org.lwjgl.input.Keyboard.KEY_RSHIFT) continue;
                 boolean down = org.lwjgl.input.Keyboard.isKeyDown(key);
+                if (consumedKeyboardButtons[key]) {
+                    consumedKeyboardButtons[key] = down;
+                    keyboardButtons[key] = down;
+                    continue;
+                }
                 if (down && !keyboardButtons[key] && mc.currentScreen == null
                         && keyboardDispatchTick[key] != tickPreCount) {
                     CrewXBootstrap.log("keyboard bind fallback: " + key);
@@ -574,6 +647,10 @@ public final class CrewXRuntimeHooks {
     public static void onRenderOverlay(float partialTicks) {
         org.lwjgl.opengl.GL11.glPushMatrix();
         try {
+            if (!firstOverlaySeen) {
+                firstOverlaySeen = true;
+                CrewXBootstrap.log("first 2D overlay callback reached CrewX");
+            }
             render2dCount++;
             if (Boolean.getBoolean("crewx.audit")) {
                 long now = System.nanoTime();
@@ -693,8 +770,8 @@ public final class CrewXRuntimeHooks {
 
     public static int onScoreboardText(net.minecraft.client.gui.FontRenderer font, String text,
             int x, int y, int color) {
-        return font.drawString(text, x + crewx.gui.ScoreboardPosition.getOffsetX(),
-                y + crewx.gui.ScoreboardPosition.getOffsetY(), color);
+        return font.drawString(text, (float) (x + crewx.gui.ScoreboardPosition.getOffsetX()),
+                (float) (y + crewx.gui.ScoreboardPosition.getOffsetY()), color, false);
     }
 
     public static void onScoreboardBackground(int left, int top, int right, int bottom, int color) {
@@ -822,7 +899,10 @@ public final class CrewXRuntimeHooks {
 
     public static boolean onDefaultBackground(Object screenObject) {
         if (!crewx.gui.InterfaceSettings.isEnabled()) return false;
-        if (!(Minecraft.getMinecraft().currentScreen instanceof net.minecraft.client.gui.GuiMainMenu)
+        if (NotchMappings.isCheatBreaker()) return false;
+        if (Minecraft.getMinecraft().currentScreen == null
+                || !Minecraft.getMinecraft().currentScreen.getClass().getName().equals(
+                        NotchMappings.className("net.minecraft.client.gui.GuiMainMenu"))
                 || !(screenObject instanceof GuiScreen)) return false;
         GuiScreen screen = (GuiScreen) screenObject;
         crewx.gui.CrewXTheme.drawScreenBackground(screen.width, screen.height);
@@ -1679,10 +1759,55 @@ public final class CrewXRuntimeHooks {
 
     public static void onMoveInput() {
         try {
+            Minecraft mc = Minecraft.getMinecraft();
+            float vanillaForward = mc != null && mc.thePlayer != null
+                    && mc.thePlayer.movementInput != null
+                    ? mc.thePlayer.movementInput.moveForward : 0.0F;
+            float vanillaStrafe = mc != null && mc.thePlayer != null
+                    && mc.thePlayer.movementInput != null
+                    ? mc.thePlayer.movementInput.moveStrafe : 0.0F;
             EventManager.call(new MoveInputEvent());
+            if (mc == null || mc.thePlayer == null || mc.currentScreen != null
+                    || mc.thePlayer.movementInput == null || CrewX.moduleManager == null) return;
+            // The Java build gets its movement state directly from Minecraft's input loop.
+            // An injected client can miss a key release; never let that stale state keep
+            // moving the player after all physical movement keys are up.
+            if (crewx.util.KeyBindUtil.isKeyDown(mc.gameSettings.keyBindForward.getKeyCode())
+                    || crewx.util.KeyBindUtil.isKeyDown(mc.gameSettings.keyBindBack.getKeyCode())
+                    || crewx.util.KeyBindUtil.isKeyDown(mc.gameSettings.keyBindLeft.getKeyCode())
+                    || crewx.util.KeyBindUtil.isKeyDown(mc.gameSettings.keyBindRight.getKeyCode())) {
+                unintendedMovementLogged = false;
+                return;
+            }
+            if (movementModuleEnabled(AntiAFK.class)
+                    || movementModuleEnabled(Fly.class)
+                    || movementModuleEnabled(Scaffold.class) || movementModuleEnabled(BridgeAssist.class)
+                    || movementModuleEnabled(LongJump.class)) return;
+            float forward = mc.thePlayer.movementInput.moveForward;
+            float strafe = mc.thePlayer.movementInput.moveStrafe;
+            if (forward != 0.0F || strafe != 0.0F) {
+                mc.thePlayer.movementInput.moveForward = 0.0F;
+                mc.thePlayer.movementInput.moveStrafe = 0.0F;
+                if (!unintendedMovementLogged) {
+                    CrewXBootstrap.log("movement input released: vanilla=" + vanillaForward + ","
+                            + vanillaStrafe + " after modules=" + forward + "," + strafe
+                            + " binds=" + mc.gameSettings.keyBindForward.isKeyDown() + ","
+                            + mc.gameSettings.keyBindBack.isKeyDown() + ","
+                            + mc.gameSettings.keyBindLeft.isKeyDown() + ","
+                            + mc.gameSettings.keyBindRight.isKeyDown());
+                    unintendedMovementLogged = true;
+                }
+            } else {
+                unintendedMovementLogged = false;
+            }
         } catch (Throwable ignored) {
 
         }
+    }
+
+    private static boolean movementModuleEnabled(Class<? extends Module> type) {
+        Module module = (Module) CrewX.moduleManager.modules.get(type);
+        return module != null && module.isEnabled();
     }
 
     public static void onLoadWorld() {
@@ -1944,6 +2069,10 @@ public final class CrewXRuntimeHooks {
                 return;
             }
             EntityPlayerSP player = (EntityPlayerSP) playerObject;
+            if (!firstWorldUpdateSeen) {
+                firstWorldUpdateSeen = true;
+                CrewXBootstrap.log("first player update callback reached CrewX");
+            }
             if (player.worldObj == null
                     || !player.worldObj.isBlockLoaded(
                             new BlockPos(player.posX, 0.0D, player.posZ))) {

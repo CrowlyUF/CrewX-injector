@@ -116,6 +116,10 @@ static int is_java_process(const wchar_t *executable) {
             || _wcsicmp(executable, L"javaw.exe") == 0;
 }
 
+static int is_cheatbreaker_process(const wchar_t *executable) {
+    return _wcsicmp(executable, L"CheatBreaker.exe") == 0;
+}
+
 static BOOL CALLBACK capture_window_title(HWND window, LPARAM parameter) {
     window_search_context *context = (window_search_context *)parameter;
     wchar_t title[WINDOW_TITLE_CAPACITY];
@@ -135,6 +139,15 @@ static BOOL CALLBACK capture_window_title(HWND window, LPARAM parameter) {
             wcscpy(candidate->title, title);
             break;
         }
+    }
+    if (index == context->count && context->count < MAX_CANDIDATES
+            && wcsstr(title, L"CheatBreaker") != NULL
+            && wcsstr(title, L"1.8.9") != NULL) {
+        process_candidate *candidate = &context->candidates[context->count++];
+        memset(candidate, 0, sizeof(*candidate));
+        candidate->process_id = process_id;
+        wcscpy_s(candidate->executable, MAX_PATH, L"CheatBreaker.exe");
+        wcscpy_s(candidate->title, WINDOW_TITLE_CAPACITY, title);
     }
     return TRUE;
 }
@@ -168,7 +181,8 @@ static size_t enumerate_candidates(
     entry.dwSize = sizeof(entry);
     if (Process32FirstW(snapshot, &entry)) {
         do {
-            if (count < capacity && is_java_process(entry.szExeFile)) {
+            if (count < capacity && (is_java_process(entry.szExeFile)
+                    || is_cheatbreaker_process(entry.szExeFile))) {
                 process_candidate *candidate = &candidates[count++];
                 memset(candidate, 0, sizeof(*candidate));
                 candidate->process_id = entry.th32ProcessID;
@@ -181,6 +195,22 @@ static size_t enumerate_candidates(
     context.candidates = candidates;
     context.count = count;
     EnumWindows(capture_window_title, (LPARAM)&context);
+    count = context.count;
+
+    {
+        size_t index;
+        size_t kept = 0;
+        for (index = 0; index < count; ++index) {
+            process_candidate *candidate = &candidates[index];
+            if (is_cheatbreaker_process(candidate->executable)
+                    && (wcsstr(candidate->title, L"CheatBreaker") == NULL
+                            || wcsstr(candidate->title, L"1.8.9") == NULL)) {
+                continue;
+            }
+            candidates[kept++] = *candidate;
+        }
+        count = kept;
+    }
 
 
 

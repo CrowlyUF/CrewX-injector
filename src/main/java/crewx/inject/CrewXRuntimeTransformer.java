@@ -291,7 +291,8 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                 input = ClassLoader.getSystemResourceAsStream(resource);
             }
             if (input == null) {
-                if (NotchMappings.isNotch() && lookup != null) {
+                if ((NotchMappings.isNotch() || NotchMappings.isCheatBreaker())
+                        && lookup != null) {
                     byte[] named = NotchMappings.namedResourceBytes(internalName, lookup);
                     if (named != null) return named;
                 }
@@ -1528,13 +1529,23 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                 }
                 if ("onLivingUpdate".equals(name) && "()V".equals(descriptor)) {
                     return new MethodVisitor(ASM9, redirectNoSlow(redirectPotionChecks(base))) {
+                        private boolean livingUpdateDispatched;
                         @Override public void visitMethodInsn(int opcode, String owner, String calledName, String calledDescriptor, boolean isInterface) {
-                            if (opcode == INVOKESPECIAL && "onLivingUpdate".equals(calledName) && "()V".equals(calledDescriptor)) {
+                            if (!NotchMappings.isCheatBreaker() && opcode == INVOKESPECIAL
+                                    && "onLivingUpdate".equals(calledName) && "()V".equals(calledDescriptor)) {
                                 callHook(mv, "onLivingUpdate", "()V");
                             }
                             super.visitMethodInsn(opcode, owner, calledName, calledDescriptor, isInterface);
-                            if ("updatePlayerMoveState".equals(calledName) && "()V".equals(calledDescriptor)) {
+                            if (("updatePlayerMoveState".equals(calledName)
+                                    || (NotchMappings.isCheatBreaker()
+                                        && CheatBreakerMappings.methodName("net.minecraft.util.MovementInput",
+                                                "updatePlayerMoveState", "()V").equals(calledName)))
+                                    && "()V".equals(calledDescriptor)) {
                                 callHook(mv, "onMoveInput", "()V");
+                                if (NotchMappings.isCheatBreaker() && !livingUpdateDispatched) {
+                                    livingUpdateDispatched = true;
+                                    callHook(mv, "onLivingUpdate", "()V");
+                                }
                             }
                         }
                     };

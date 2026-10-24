@@ -108,7 +108,7 @@ public class AutoRecraft extends Module {
         for (ItemStack s : mc.thePlayer.inventory.mainInventory) {
             if (s == null) continue;
             if (s.getItem() instanceof ItemBlock
-                    && ((ItemBlock) s.getItem()).getBlock() == Blocks.cactus) cactus = true;
+                    && ((ItemBlock) s.getItem()).getBlock() == net.minecraft.block.Block.getBlockById(81)) cactus = true;
             else if (s.getItem() == Items.bowl) bowl = true;
         }
         return bowl && cactus;
@@ -143,11 +143,11 @@ public class AutoRecraft extends Module {
     private int available(int recipe) {
         int bowls = countItem(Items.bowl);
         switch (recipe) {
-            case 1: return cactusMode.getValue() ? Math.min(bowls, countBlock(Blocks.cactus)) : 0;
+            case 1: return cactusMode.getValue() ? Math.min(bowls, countBlock(net.minecraft.block.Block.getBlockById(81))) : 0;
             case 2: return cocoaMode.getValue() ? Math.min(bowls, countCocoa()) : 0;
             case 3: return mushroomMode.getValue()
                     ? Math.min(bowls, Math.min(countBlock(Blocks.red_mushroom), countBlock(Blocks.brown_mushroom))) : 0;
-            case 4: return pumpkinSeedsMode.getValue() ? Math.min(bowls, countItem(Items.pumpkin_seeds)) : 0;
+            case 4: return pumpkinSeedsMode.getValue() ? Math.min(bowls, countItem(net.minecraft.item.Item.getItemById(361))) : 0;
             default: return 0;
         }
     }
@@ -172,7 +172,7 @@ public class AutoRecraft extends Module {
                 case 1:
                     if (s.getItem() == Items.bowl) recraftMap.putIfAbsent("bowl", i);
                     else if (s.getItem() instanceof ItemBlock
-                            && ((ItemBlock) s.getItem()).getBlock() == Blocks.cactus)
+                            && ((ItemBlock) s.getItem()).getBlock() == net.minecraft.block.Block.getBlockById(81))
                         recraftMap.putIfAbsent("cactus", i);
                     break;
                 case 2:
@@ -191,7 +191,7 @@ public class AutoRecraft extends Module {
                     break;
                 case 4:
                     if (s.getItem() == Items.bowl) recraftMap.putIfAbsent("bowl", i);
-                    else if (s.getItem() == Items.pumpkin_seeds) recraftMap.putIfAbsent("seeds", i);
+                    else if (s.getItem() == net.minecraft.item.Item.getItemById(361)) recraftMap.putIfAbsent("seeds", i);
                     break;
             }
         }

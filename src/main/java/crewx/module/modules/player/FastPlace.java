@@ -15,7 +15,7 @@ import crewx.util.RotationUtil;
 import crewx.property.properties.BooleanProperty;
 import crewx.property.properties.FloatProperty;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockObsidian;
+import net.minecraft.init.Blocks;
 import net.minecraft.client.Minecraft;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
@@ -47,7 +47,7 @@ public class FastPlace extends Module {
             }
             if (item instanceof ItemBlock) {
                 Block block = ((ItemBlock) item).getBlock();
-                if (skipObsidian.getValue() && block instanceof BlockObsidian) {
+                if (skipObsidian.getValue() && block == Blocks.obsidian) {
                     return false;
                 }
                 if (skipInteractable.getValue() && BlockUtil.isInteractable(block)) {

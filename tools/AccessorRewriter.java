@@ -13,6 +13,11 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.LdcInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 
 
 public final class AccessorRewriter {
@@ -49,8 +54,13 @@ public final class AccessorRewriter {
                 try (InputStream stream = jar.getInputStream(entry)) {
                     bytes = readAll(stream);
                 }
-                if (entry.getName().startsWith("crewx/") && entry.getName().endsWith(".class")) {
+                if ((entry.getName().startsWith("crewx/")
+                        || entry.getName().equals("net/montoyo/mcef/client/ClientProxy.class"))
+                        && entry.getName().endsWith(".class")) {
                     bytes = rewrite(bytes);
+                    if (entry.getName().equals("net/montoyo/mcef/client/ClientProxy.class")) {
+                        bytes = removeLegacyLibraryPathHack(bytes);
+                    }
                 }
                 JarEntry copy = new JarEntry(entry.getName());
                 copy.setTime(entry.getTime());
@@ -88,6 +98,11 @@ public final class AccessorRewriter {
                         super.visitTypeInsn(opcode, type);
                     }
                     @Override public void visitFieldInsn(int opcode, String owner, String field, String descriptor) {
+                        if (opcode == Opcodes.GETSTATIC && owner.equals("net/minecraftforge/common/MinecraftForge")
+                                && field.equals("EVENT_BUS")) {
+                            super.visitInsn(Opcodes.ACONST_NULL);
+                            return;
+                        }
                         if (opcode == Opcodes.PUTSTATIC && owner.equals("net/minecraftforge/common/ForgeModContainer")
                                 && field.equals("forgeLightPipelineEnabled") && descriptor.equals("Z")) {
                             super.visitMethodInsn(Opcodes.INVOKESTATIC, "crewx/inject/ForgeCompat", "setLightPipeline", "(Z)V", false);
@@ -97,6 +112,16 @@ public final class AccessorRewriter {
                     }
                     @Override public void visitMethodInsn(int opcode, String owner, String method,
                                                            String descriptor, boolean isInterface) {
+                        if (owner.equals("net/minecraftforge/fml/common/eventhandler/EventBus")
+                                && method.equals("register")) {
+                            super.visitInsn(Opcodes.POP2);
+                            return;
+                        }
+                        if (owner.equals("net/montoyo/mcef/coremod/ShutdownPatcher")
+                                && method.equals("didPatchSucceed")) {
+                            super.visitInsn(Opcodes.ICONST_1);
+                            return;
+                        }
                         if (opcode == Opcodes.INVOKESTATIC
                                 && owner.equals("crewx/accountmanager/ForgeBinding")
                                 && method.equals("register") && descriptor.equals("()V")) {
@@ -138,5 +163,44 @@ public final class AccessorRewriter {
             }
         }, 0);
         return writer.toByteArray();
+    }
+
+    /** Java 17 has no ClassLoader.usr_paths. The library is loaded by absolute path below. */
+    private static byte[] removeLegacyLibraryPathHack(byte[] bytes) {
+        ClassNode node = new ClassNode(Opcodes.ASM9);
+        new ClassReader(bytes).accept(node, 0);
+        for (MethodNode method : node.methods) {
+            if (!method.name.equals("onInit") || !method.desc.equals("()V")) continue;
+            AbstractInsnNode first = null;
+            AbstractInsnNode next = null;
+            for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (first == null && insn instanceof LdcInsnNode
+                        && "Now adding \"%s\" to java.library.path".equals(((LdcInsnNode) insn).cst)) {
+                    first = insn;
+                } else if (first != null && insn instanceof MethodInsnNode) {
+                    MethodInsnNode call = (MethodInsnNode) insn;
+                    if (call.owner.equals("org/cef/OS") && call.name.equals("isLinux")) {
+                        next = insn;
+                        break;
+                    }
+                }
+            }
+            if (first == null || next == null) throw new IllegalStateException("MCEF library path sequence changed");
+            Set<AbstractInsnNode> removed = new HashSet<>();
+            for (AbstractInsnNode insn = first; insn != next; insn = insn.getNext()) removed.add(insn);
+            method.tryCatchBlocks.removeIf(block -> removed.contains(block.start)
+                    || removed.contains(block.end) || removed.contains(block.handler));
+            if (method.localVariables != null) method.localVariables.removeIf(local ->
+                    removed.contains(local.start) || removed.contains(local.end));
+            for (AbstractInsnNode insn = first; insn != next;) {
+                AbstractInsnNode following = insn.getNext();
+                method.instructions.remove(insn);
+                insn = following;
+            }
+            ClassWriter out = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+            node.accept(out);
+            return out.toByteArray();
+        }
+        throw new IllegalStateException("MCEF ClientProxy.onInit missing");
     }
 }

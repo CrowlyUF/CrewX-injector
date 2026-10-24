@@ -59,12 +59,12 @@ public final class ClickGuiFontRenderer {
     public void drawString(String text, float x, float y, int color) {
         if (text == null || text.isEmpty()) return;
         if (!this.hasMetrics) {
-            MC.fontRendererObj.drawString(text, (int) x, (int) y, color);
+            MC.fontRendererObj.drawString(text, x, y, color, false);
             return;
         }
         ResourceLocation fontTexture = this.getTexture();
         if (fontTexture == null) {
-            MC.fontRendererObj.drawString(text, (int) x, (int) y, color);
+            MC.fontRendererObj.drawString(text, x, y, color, false);
             return;
         }
         boolean hasVisibleGlyph = false;

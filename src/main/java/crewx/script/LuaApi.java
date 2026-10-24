@@ -320,7 +320,8 @@ public class LuaApi {
                 return nil();
             }
             BlockPos pos = new BlockPos(a.arg(1).toint(), a.arg(2).toint(), a.arg(3).toint());
-            return LuaValue.valueOf(mc.theWorld.getBlockState(pos).getBlock().getRegistryName());
+            return LuaValue.valueOf(String.valueOf(net.minecraft.block.Block.blockRegistry.getNameForObject(
+                    mc.theWorld.getBlockState(pos).getBlock())));
         });
 
         fn(t, "isBlockSolid", a -> {

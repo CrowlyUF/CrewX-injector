@@ -168,6 +168,9 @@ public final class EventManager {
             if (REPORTED_FAILURES.add(key)) {
                 crewx.util.ClientLog.log("event handler FAILED " + key + " "
                         + (cause.getStackTrace().length == 0 ? "" : cause.getStackTrace()[0]));
+                if (crewx.inject.NotchMappings.isCheatBreaker()) {
+                    crewx.inject.CrewXBootstrap.log("event handler FAILED " + key);
+                }
             }
         }
     }

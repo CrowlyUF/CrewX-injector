@@ -197,7 +197,7 @@ public class ESP extends Module {
             this.outlineRenderer.stop();
             this.framebuffer.framebufferClear();
             mc.getFramebuffer().bindFramebuffer(false);
-            GlStateManager.popAttrib();
+            GL11.glPopAttrib();
             crewx.util.GlStateSync.afterPopAttrib(glCache);
             GlStateManager.popMatrix();
         }

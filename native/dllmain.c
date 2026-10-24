@@ -27,6 +27,11 @@
 #define CREWX_PRODUCT_JAR_RESOURCE_ID 421
 #define CREWX_NAMED_JAR_RESOURCE_ID 423
 #define CREWX_NOTCH_JAR_RESOURCE_ID 424
+#define CREWX_CHEATBREAKER_JAR_RESOURCE_ID 425
+#define CREWX_CB_MINECRAFT "IlIlIlIIllIllIIIIIIIIIIlI"
+#define CREWX_CB_GET_MINECRAFT "IlIIIllIlllllIlIlIlllIIIl"
+#define CREWX_CB_DISPLAY_WIDTH "IlllIllIIIIllIllIIIlIlIll"
+#define CREWX_CB_DISPLAY_HEIGHT "IlIlIIlIlIlIIlIIIIllIIllI"
 
 static HMODULE g_module = NULL;
 static JavaVM *g_vm = NULL;
@@ -241,7 +246,8 @@ static jobject find_loaded_minecraft_class_loader(JNIEnv *env) {
         if ((*g_jvmti)->GetClassSignature(g_jvmti, classes[index], &signature, NULL)
                 == JVMTI_ERROR_NONE && signature != NULL) {
             if (strcmp(signature, "Lnet/minecraft/client/Minecraft;") == 0
-                    || strcmp(signature, "Lave;") == 0) {
+                    || strcmp(signature, "Lave;") == 0
+                    || strcmp(signature, "L" CREWX_CB_MINECRAFT ";") == 0) {
                 jobject class_loader = NULL;
                 if ((*g_jvmti)->GetClassLoader(g_jvmti, classes[index], &class_loader)
                         == JVMTI_ERROR_NONE && class_loader != NULL) {
@@ -316,6 +322,8 @@ static int payload_resource_for_loader(JNIEnv *env, jobject loader) {
     jstring name;
     jclass minecraft_class;
     jmethodID method;
+    jfieldID width;
+    jfieldID height;
     if (loader_class == NULL) {
         (*env)->ExceptionClear(env);
         return 0;
@@ -327,6 +335,32 @@ static int payload_resource_for_loader(JNIEnv *env, jobject loader) {
         (*env)->ExceptionClear(env);
         return 0;
     }
+    (*env)->DeleteLocalRef(env, name);
+    name = (*env)->NewStringUTF(env, CREWX_CB_MINECRAFT);
+    jclass cb_class = name == NULL ? NULL
+            : (jclass)(*env)->CallObjectMethod(env, loader, load_class, name);
+    if (name != NULL) (*env)->DeleteLocalRef(env, name);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        cb_class = NULL;
+    }
+    if (cb_class != NULL) {
+        method = (*env)->GetStaticMethodID(env, cb_class, CREWX_CB_GET_MINECRAFT,
+                "()L" CREWX_CB_MINECRAFT ";");
+        width = (*env)->GetFieldID(env, cb_class, CREWX_CB_DISPLAY_WIDTH, "I");
+        height = (*env)->GetFieldID(env, cb_class, CREWX_CB_DISPLAY_HEIGHT, "I");
+        if ((*env)->ExceptionCheck(env) || method == NULL || width == NULL || height == NULL) {
+            (*env)->ExceptionClear(env);
+            crewx_log(L"CheatBreaker 1.8.9 mapping sentinels failed; refusing injection");
+            (*env)->DeleteLocalRef(env, cb_class);
+            return 0;
+        }
+        (*env)->DeleteLocalRef(env, cb_class);
+        crewx_log(L"detected audited CheatBreaker 1.8.9 members; selecting CB payload");
+        return CREWX_CHEATBREAKER_JAR_RESOURCE_ID;
+    }
+    name = (*env)->NewStringUTF(env, "net.minecraft.client.Minecraft");
+    if (name == NULL) return 0;
     minecraft_class = (jclass)(*env)->CallObjectMethod(env, loader, load_class, name);
     (*env)->DeleteLocalRef(env, name);
     if (minecraft_class == NULL || (*env)->ExceptionCheck(env)) {

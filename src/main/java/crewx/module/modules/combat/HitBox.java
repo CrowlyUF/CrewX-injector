@@ -102,7 +102,8 @@ public class HitBox extends Module {
                     } else if (intercept != null) {
                         double interceptDistance = eyePos.distanceTo(intercept.hitVec);
                         if (interceptDistance < closestDistance || closestDistance == 0.0) {
-                            if (entity == mc.getRenderViewEntity().ridingEntity && !entity.canRiderInteract()) {
+                            if (entity == mc.getRenderViewEntity().ridingEntity
+                                    && (crewx.inject.NotchMappings.isCheatBreaker() || !entity.canRiderInteract())) {
                                 if (closestDistance == 0.0) {
                                     pointedEntity = entity;
                                     hitVec = intercept.hitVec;

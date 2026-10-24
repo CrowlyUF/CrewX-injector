@@ -16,7 +16,7 @@ import crewx.property.properties.BooleanProperty;
 import crewx.property.properties.ModeProperty;
 import net.minecraft.block.BlockBed;
 import net.minecraft.block.BlockBed.EnumPartType;
-import net.minecraft.block.BlockObsidian;
+import net.minecraft.init.Blocks;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.AxisAlignedBB;
@@ -91,8 +91,8 @@ public class BedESP extends Module {
                             for (EnumFacing facing : Arrays.asList(EnumFacing.UP, EnumFacing.NORTH, EnumFacing.EAST, EnumFacing.SOUTH, EnumFacing.WEST)) {
                                 BlockPos offsetX = blockPos.offset(facing);
                                 BlockPos offsetZ = opposite.offset(facing);
-                                boolean xObsidian = mc.theWorld.getBlockState(offsetX).getBlock() instanceof BlockObsidian;
-                                boolean zObsidian = mc.theWorld.getBlockState(offsetZ).getBlock() instanceof BlockObsidian;
+                                boolean xObsidian = mc.theWorld.getBlockState(offsetX).getBlock() == Blocks.obsidian;
+                                boolean zObsidian = mc.theWorld.getBlockState(offsetZ).getBlock() == Blocks.obsidian;
                                 if (xObsidian && zObsidian) {
                                     this.drawObsidianBox(
                                             new AxisAlignedBB(

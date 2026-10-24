@@ -131,7 +131,9 @@ public class Config {
                         }
                     }
 
-                    if (!(module instanceof GuiModule) && object.has("toggled") && !resetTogglesToDefaults && !legacy) {
+                    if (!(module instanceof GuiModule)
+                            && !(module instanceof crewx.module.modules.misc.Spotify)
+                            && object.has("toggled") && !resetTogglesToDefaults && !legacy) {
                         JsonElement toggled = object.get("toggled");
                         if (toggled != null && toggled.isJsonPrimitive()
                                 && toggled.getAsJsonPrimitive().isBoolean()) {

@@ -111,7 +111,9 @@ public class Piercing extends Module {
             if (dist > 3.0D) continue;
             if (dist > reach || dist >= bestDist) continue;
             if (this.insideHitboxOnly.getValue() && dist > 0.10000000149011612D) continue;
-            if (entity == viewEntity.ridingEntity && !viewEntity.canRiderInteract() && best != null) continue;
+            if (entity == viewEntity.ridingEntity
+                    && (crewx.inject.NotchMappings.isCheatBreaker() || !viewEntity.canRiderInteract())
+                    && best != null) continue;
 
             boolean living = entity instanceof EntityLivingBase;
             int hurt = living ? ((EntityLivingBase) entity).hurtTime : Integer.MAX_VALUE;

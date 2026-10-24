@@ -417,6 +417,16 @@ public class ClickGui extends GuiScreen {
         this.tabLineX = approach(this.tabLineX, targetX, this.deltaTime, 16.0F);
         this.tabLineWidth = approach(this.tabLineWidth, targetWidth, this.deltaTime, 16.0F);
         this.round(this.windowX + this.tabLineX, this.windowY + 30.0F, this.tabLineWidth, 2.0F, accentColor().getRGB(), 1.0F);
+        if (crewx.inject.CrewXBootstrap.injectionActive) {
+            boolean confirming = this.destroyConfirmationPending();
+            String mainLabel = confirming ? "Cancel" : "Destroy";
+            float mainX = this.destroyButtonX(mainLabel);
+            this.drawDestroyButton(mainLabel, mainX);
+            if (confirming) {
+                float confirmX = mainX - this.destroyButtonWidth("Confirm Destroy") - 12.0F;
+                this.drawDestroyButton("Confirm Destroy", confirmX);
+            }
+        }
     }
 
     private boolean destroyConfirmationPending() {
@@ -1178,6 +1188,23 @@ public class ClickGui extends GuiScreen {
         if (mx >= this.windowX && mx <= this.windowX + this.windowWidth
                 && my >= this.windowY && my <= this.windowY + HEADER_HEIGHT) {
             if (mouseButton == 0) {
+                if (crewx.inject.CrewXBootstrap.injectionActive) {
+                    boolean confirming = this.destroyConfirmationPending();
+                    String mainLabel = confirming ? "Cancel" : "Destroy";
+                    float mainX = this.destroyButtonX(mainLabel);
+                    float confirmX = mainX - this.destroyButtonWidth("Confirm Destroy") - 12.0F;
+                    if (confirming && this.destroyButtonHit("Confirm Destroy", confirmX, mx, my)) {
+                        this.unloadConfirmUntil = 0L;
+                        if (!crewx.inject.CrewXNative.urq()) {
+                            crewx.inject.CrewXBootstrap.log("unload request could not start");
+                        }
+                        return;
+                    }
+                    if (this.destroyButtonHit(mainLabel, mainX, mx, my)) {
+                        this.unloadConfirmUntil = confirming ? 0L : System.currentTimeMillis() + 5000L;
+                        return;
+                    }
+                }
                 float modulesX = this.modulesTabX();
                 float configsX = this.configsTabX();
                 String modulesLabel = this.headerLabel(ViewTab.MODULES);

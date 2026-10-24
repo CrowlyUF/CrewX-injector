@@ -139,7 +139,14 @@ public final class CrewXMainMenu extends GuiScreen {
         drawInterfaceToggle(mouseX, mouseY, dt, appear(elapsed, 500L));
         if (this.interfaceOffAt != 0L && now - this.interfaceOffAt > 180L) {
             // let the switch slide first, then hand over to Minecraft's own menu
-            this.mc.displayGuiScreen(new net.minecraft.client.gui.GuiMainMenu());
+            try {
+                Class<?> menuClass = Class.forName(crewx.inject.NotchMappings.className(
+                        "net.minecraft.client.gui.GuiMainMenu"), true,
+                        net.minecraft.client.Minecraft.class.getClassLoader());
+                this.mc.displayGuiScreen((net.minecraft.client.gui.GuiScreen) menuClass.newInstance());
+            } catch (ReflectiveOperationException unavailable) {
+                this.mc.displayGuiScreen(null);
+            }
             return;
         }
 

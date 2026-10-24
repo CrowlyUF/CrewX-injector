@@ -1,6 +1,7 @@
 package crewx.gui;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.shader.ShaderGroup;
 import net.minecraft.util.ResourceLocation;
 
@@ -26,16 +27,29 @@ public final class BlurController {
         update();
     }
 
+    public static void closeIfScreenChanged(GuiScreen screen) {
+        if (!(screen instanceof ClickGui) && (clickGuiOpen || ownedShader != null)) {
+            setClickGuiOpen(false);
+        }
+    }
+
     private static void update() {
         if (MC.entityRenderer == null) return;
         if (!clickGuiOpen) {
-            if (ownedShader != null && MC.entityRenderer.getShaderGroup() == ownedShader) {
-                MC.entityRenderer.stopUseShader();
+            if (ownedShader != null) {
+                try {
+                    MC.entityRenderer.stopUseShader();
+                } catch (Throwable error) {
+                    crewx.inject.CrewXBootstrap.log("ClickGUI blur cleanup failed: " + error);
+                }
             }
             ownedShader = null;
             retryAfter = 0L;
             return;
         }
+        // CheatBreaker retains the full-screen post shader after GuiScreen closes.
+        // The ClickGUI's own rounded-panel blur still renders independently.
+        if (crewx.inject.NotchMappings.isCheatBreaker()) return;
         if (MC.theWorld == null || MC.thePlayer == null || MC.entityRenderer.isShaderActive()) return;
         try {
             MC.entityRenderer.loadShader(SOFT_BLUR);

@@ -22,7 +22,7 @@ public class ItemCommand extends Command {
         ItemStack stack = mc.thePlayer.inventory.getCurrentItem();
         if (stack != null) {
             String display = stack.getDisplayName().replace('§', '&');
-            String registryName = stack.getItem().getRegistryName();
+            String registryName = String.valueOf(net.minecraft.item.Item.itemRegistry.getNameForObject(stack.getItem()));
             String compound = stack.hasTagCompound() ? stack.getTagCompound().toString().replace('§', '&') : "";
             ChatUtil.sendRaw(String.format("%s%s (%s) %s", ChatColors.formatColor(CrewX.clientName), display, registryName, compound));
         }

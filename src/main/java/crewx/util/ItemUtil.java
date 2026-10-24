@@ -201,7 +201,12 @@ public class ItemUtil {
             ItemStack itemStack = ItemUtil.mc.thePlayer.inventory.getStackInSlot(currentSlot);
             if (itemStack == null) continue;
             if (!(itemStack.getItem() instanceof ItemTool)) continue;
-            if (!itemStack.getItem().getToolClasses(itemStack).contains(toolClass)) continue;
+            if (crewx.inject.NotchMappings.isCheatBreaker()) {
+                Item tool = itemStack.getItem();
+                if (!("pickaxe".equals(toolClass) && tool instanceof ItemPickaxe
+                        || "shovel".equals(toolClass) && tool instanceof ItemSpade
+                        || "axe".equals(toolClass) && tool instanceof ItemAxe)) continue;
+            } else if (!itemStack.getItem().getToolClasses(itemStack).contains(toolClass)) continue;
             if (checkDurability) {
                 if (itemStack.isItemDamaged()) {
                     if (itemStack.getMaxDamage() - itemStack.getItemDamage() < 30) {

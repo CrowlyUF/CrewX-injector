@@ -40,8 +40,14 @@ public final class RemapCrewToNotch {
             return ("crewx/gui/ClickGui".equals(owner)
                     || "crewx/gui/CrewXMainMenu".equals(owner)
                     || "crewx/gui/servers/CrewXServerSelector".equals(owner)
-                    || owner.startsWith("crewx/accountmanager/gui/Gui"))
+                    || owner.startsWith("crewx/accountmanager/gui/Gui")
+                    || "crewx/spotify/GuiSpotify".equals(owner)
+                    || "crewx/spotify/SpotifyWebScreen".equals(owner))
                     && !owner.contains("$");
+        }
+
+        private boolean crewGuiButton(String owner) {
+            return "crewx/spotify/SpotifyButton".equals(owner);
         }
 
         private boolean crewGuiSlot(String owner) {
@@ -106,6 +112,38 @@ public final class RemapCrewToNotch {
             return null;
         }
 
+        private String fieldDeclarationOwner(String namedOwner, String name) {
+            if (fields.containsKey(namedOwner + "/" + name)) return namedOwner;
+            String obfOwner = classes.getOrDefault(namedOwner, namedOwner);
+            ArrayDeque<String> queue = new ArrayDeque<>(
+                    gameParents.getOrDefault(obfOwner, Collections.emptyList()));
+            Set<String> seen = new HashSet<>();
+            while (!queue.isEmpty()) {
+                String obfParent = queue.removeFirst();
+                if (!seen.add(obfParent)) continue;
+                String namedParent = namedClasses.getOrDefault(obfParent, obfParent);
+                if (fields.containsKey(namedParent + "/" + name)) return namedParent;
+                queue.addAll(gameParents.getOrDefault(obfParent, Collections.emptyList()));
+            }
+            if (crewGuiScreen(namedOwner)) {
+                for (String parent : new String[]{"net/minecraft/client/gui/GuiScreen",
+                        "net/minecraft/client/gui/Gui"}) {
+                    if (fields.containsKey(parent + "/" + name)) return parent;
+                }
+            }
+            if (crewGuiButton(namedOwner)) {
+                for (String parent : new String[]{"net/minecraft/client/gui/GuiButton",
+                        "net/minecraft/client/gui/Gui"}) {
+                    if (fields.containsKey(parent + "/" + name)) return parent;
+                }
+            }
+            if (crewGuiSlot(namedOwner)
+                    && fields.containsKey("net/minecraft/client/gui/GuiSlot/" + name)) {
+                return "net/minecraft/client/gui/GuiSlot";
+            }
+            return namedOwner;
+        }
+
         static void loadCsv(Path path, Map<String,String> out) throws IOException {
             List<String> lines = Files.readAllLines(path);
             for (int i = 1; i < lines.size(); i++) {
@@ -139,6 +177,13 @@ public final class RemapCrewToNotch {
             }
             if (crewGuiScreen(namedOwner)) {
                 String inherited = fields.get("net/minecraft/client/gui/GuiScreen/" + name);
+                if (inherited == null) {
+                    inherited = fields.get("net/minecraft/client/gui/Gui/" + name);
+                }
+                if (inherited != null) return inherited;
+            }
+            if (crewGuiButton(namedOwner)) {
+                String inherited = fields.get("net/minecraft/client/gui/GuiButton/" + name);
                 if (inherited == null) {
                     inherited = fields.get("net/minecraft/client/gui/Gui/" + name);
                 }
@@ -196,6 +241,15 @@ public final class RemapCrewToNotch {
                 }
                 if (override != null) return override;
             }
+            if (crewGuiButton(namedOwner)) {
+                String override = methods.get("net/minecraft/client/gui/GuiButton/"
+                        + name + " " + descriptor);
+                if (override == null) {
+                    override = methods.get("net/minecraft/client/gui/Gui/"
+                            + name + " " + descriptor);
+                }
+                if (override != null) return override;
+            }
             if (crewGuiSlot(namedOwner)) {
                 String override = methods.get("net/minecraft/client/gui/GuiSlot/"
                         + name + " " + descriptor);
@@ -236,14 +290,30 @@ public final class RemapCrewToNotch {
                     try (InputStream stream = input.getInputStream(entry)) {
                         data = readAll(stream);
                     }
-                    if (entry.getName().startsWith("crewx/")
+                    if ((entry.getName().startsWith("crewx/")
+                            || entry.getName().startsWith("net/montoyo/mcef/")
+                            || (args.length > 5 && entry.getName().equals("org/cef/browser/CefRenderer.class")))
                             && !entry.getName().startsWith("crewx/inject/deps/")
                             && !entry.getName().startsWith("crewx/inject/CrewXRuntimeTransformer")
                             && !entry.getName().startsWith("crewx/inject/NotchMappings")
+                            && !entry.getName().startsWith("crewx/inject/CheatBreakerMappings")
                             && entry.getName().endsWith(".class")) {
                         ClassReader reader = new ClassReader(data);
                         ClassWriter writer = new ClassWriter(0);
-                        reader.accept(new ClassRemapper(writer, mapping), 0);
+                        reader.accept(new ClassRemapper(writer, mapping) {
+                            @Override protected MethodVisitor createMethodRemapper(MethodVisitor visitor) {
+                                if (args.length <= 5) return super.createMethodRemapper(visitor);
+                                return new org.objectweb.asm.commons.MethodRemapper(visitor, mapping) {
+                                    @Override public void visitFieldInsn(int opcode, String owner,
+                                            String field, String descriptor) {
+                                        String declaration = mapping.fieldDeclarationOwner(owner, field);
+                                        mv.visitFieldInsn(opcode, mapping.mapType(declaration),
+                                                mapping.mapFieldName(declaration, field, descriptor),
+                                                mapping.mapDesc(descriptor));
+                                    }
+                                };
+                            }
+                        }, 0);
                         data = writer.toByteArray();
                         remapped++;
                     }

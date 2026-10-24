@@ -218,7 +218,7 @@ public class BedDefender extends Module {
     private boolean isGroundBlock(BlockPos pos) {
         Block block = mc.theWorld.getBlockState(pos).getBlock();
         return block == Blocks.grass || block == Blocks.dirt || block == Blocks.stone
-                || block == Blocks.sand || block == Blocks.gravel || block == Blocks.clay
+                || block == Block.getBlockById(12) || block == Blocks.gravel || block == Blocks.clay
                 || block == Blocks.farmland || block == Blocks.soul_sand || block == Blocks.mycelium;
     }
 

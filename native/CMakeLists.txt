@@ -36,6 +36,8 @@ set(CREWX_PRODUCT_JAR_NAMED "" CACHE FILEPATH
         "CrewX named payload JAR for Lunar and other MCP-named clients")
 set(CREWX_PRODUCT_JAR_NOTCH "" CACHE FILEPATH
         "CrewX Notch-mapped payload JAR for Badlion/vanilla clients")
+set(CREWX_PRODUCT_JAR_CHEATBREAKER "" CACHE FILEPATH
+        "CrewX payload remapped for the audited CheatBreaker 1.8.9 build")
 if(NOT CREWX_PRODUCT_JAR OR NOT EXISTS "${CREWX_PRODUCT_JAR}")
     message(FATAL_ERROR
             "CREWX_PRODUCT_JAR must name an existing payload JAR")
@@ -52,24 +54,34 @@ if(NOT CREWX_PRODUCT_JAR_NOTCH OR NOT EXISTS "${CREWX_PRODUCT_JAR_NOTCH}")
 endif()
 get_filename_component(CREWX_PRODUCT_JAR_NOTCH
         "${CREWX_PRODUCT_JAR_NOTCH}" ABSOLUTE)
+if(NOT CREWX_PRODUCT_JAR_CHEATBREAKER OR NOT EXISTS "${CREWX_PRODUCT_JAR_CHEATBREAKER}")
+    message(FATAL_ERROR "CREWX_PRODUCT_JAR_CHEATBREAKER must name an existing payload JAR")
+endif()
+get_filename_component(CREWX_PRODUCT_JAR_CHEATBREAKER
+        "${CREWX_PRODUCT_JAR_CHEATBREAKER}" ABSOLUTE)
 file(TO_CMAKE_PATH "${CREWX_PRODUCT_JAR}" CREWX_PRODUCT_JAR_RC_PATH)
 file(TO_CMAKE_PATH "${CREWX_PRODUCT_JAR_NAMED}" CREWX_PRODUCT_JAR_NAMED_RC_PATH)
 file(TO_CMAKE_PATH "${CREWX_PRODUCT_JAR_NOTCH}" CREWX_PRODUCT_JAR_NOTCH_RC_PATH)
+file(TO_CMAKE_PATH "${CREWX_PRODUCT_JAR_CHEATBREAKER}" CREWX_PRODUCT_JAR_CHEATBREAKER_RC_PATH)
 configure_file(payload.rc.in generated/payload.rc @ONLY)
 configure_file(payload_named.rc.in generated/payload_named.rc @ONLY)
 configure_file(payload_notch.rc.in generated/payload_notch.rc @ONLY)
+configure_file(payload_cheatbreaker.rc.in generated/payload_cheatbreaker.rc @ONLY)
 set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc"
         APPEND PROPERTY OBJECT_DEPENDS "${CREWX_PRODUCT_JAR}")
 set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_named.rc"
         APPEND PROPERTY OBJECT_DEPENDS "${CREWX_PRODUCT_JAR_NAMED}")
 set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_notch.rc"
         APPEND PROPERTY OBJECT_DEPENDS "${CREWX_PRODUCT_JAR_NOTCH}")
+set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_cheatbreaker.rc"
+        APPEND PROPERTY OBJECT_DEPENDS "${CREWX_PRODUCT_JAR_CHEATBREAKER}")
 
 add_library(CrewXNative SHARED
         dllmain.c
         "${CMAKE_CURRENT_BINARY_DIR}/generated/payload.rc"
         "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_named.rc"
-        "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_notch.rc")
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_notch.rc"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/payload_cheatbreaker.rc")
 target_include_directories(CrewXNative PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CREWX_JNI_INCLUDE}"

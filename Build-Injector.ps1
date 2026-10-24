@@ -45,7 +45,7 @@ foreach ($taskModule in @('asm', 'asm-commons', 'asm-tree')) {
 $taskAsmCp = $taskAsmJars -join ';'
 $taskClasses = Join-Path $taskRoot 'build-tools'
 New-Item -ItemType Directory -Path $taskClasses -Force | Out-Null
-& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java') (Join-Path $taskTools 'PayloadCompatibilityCheck.java')
+& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java') (Join-Path $taskTools 'GenerateCheatBreakerSrg.java') (Join-Path $taskTools 'PayloadCompatibilityCheck.java') (Join-Path $taskTools 'VerifyCrewCheatBreakerPayload.java')
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar as ferramentas de empacotamento.' }
 
 $taskLibs = Join-Path $taskJavaProject 'build\libs'
@@ -55,7 +55,8 @@ $taskForgeInput = Join-Path $taskLibs 'CrewX.jar'
 $taskForgePayload = Join-Path $taskLibs 'CrewX-inject-forge.jar'
 $taskNamedPayload = Join-Path $taskLibs 'CrewX-inject-named.jar'
 $taskNotchPayload = Join-Path $taskLibs 'CrewX-inject-notch.jar'
-foreach ($taskFile in @($taskForgePayload, $taskNamedPayload, $taskNotchPayload)) {
+$taskCheatBreakerPayload = Join-Path $taskLibs 'CrewX-inject-cheatbreaker.jar'
+foreach ($taskFile in @($taskForgePayload, $taskNamedPayload, $taskNotchPayload, $taskCheatBreakerPayload)) {
     if (Test-Path -LiteralPath $taskFile) { Remove-Item -LiteralPath $taskFile -Force }
 }
 & $taskJava -cp "$taskClasses;$taskAsmCp" AccessorRewriter $taskForgeInput $taskForgePayload
@@ -69,6 +70,26 @@ $taskMappings = Join-Path $taskJavaProject 'src\main\resources\crewx\inject'
     (Join-Path $taskMappings 'notch-methods.csv') `
     (Join-Path $taskMappings 'notch-fields.csv')
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload Badlion.' }
+
+$taskCheatBreakerGame = Join-Path $env:APPDATA 'CheatBreaker\downloads\versions\1.8.9\1.8.9.patch'
+$taskCheatBreakerHash = 'D6205D02A65F1EAE2513219A2E2237A826BCE33DD7B8B47680E9EE47D1F31EF8'
+if (-not (Test-Path -LiteralPath $taskCheatBreakerGame) -or
+        (Get-FileHash -LiteralPath $taskCheatBreakerGame -Algorithm SHA256).Hash -ne $taskCheatBreakerHash) {
+    throw 'CheatBreaker 1.8.9 instalado nao corresponde aos mappings auditados.'
+}
+$taskCheatBreakerSrg = Join-Path $taskClasses 'cheatbreaker189-joined.srg'
+& $taskJava -cp $taskClasses GenerateCheatBreakerSrg `
+    (Join-Path $taskMappings 'cheatbreaker189.tiny') $taskCheatBreakerSrg
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao converter os mappings CheatBreaker.' }
+& $taskJava -cp "$taskClasses;$taskAsmCp" RemapCrewToNotch `
+    $taskNamedPayload $taskCheatBreakerPayload $taskCheatBreakerSrg `
+    (Join-Path $taskMappings 'notch-methods.csv') `
+    (Join-Path $taskMappings 'notch-fields.csv') $taskCheatBreakerGame
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload CheatBreaker.' }
+& $taskJava -cp "$taskClasses;$taskAsmCp" VerifyCrewCheatBreakerPayload `
+    $taskCheatBreakerPayload $taskCheatBreakerGame `
+    (Join-Path $taskClasses 'cheatbreaker-linkage-errors.txt')
+if ($LASTEXITCODE -ne 0) { throw 'Falha na verificacao de ligacoes do payload CheatBreaker.' }
 
 & $taskJava -cp "$taskClasses;$taskAsmCp" PayloadCompatibilityCheck $taskForgePayload $taskNamedPayload $taskNotchPayload
 if ($LASTEXITCODE -ne 0) { throw 'Falha na verificacao de compatibilidade Forge/Lunar.' }
@@ -95,7 +116,8 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     "-DCREWX_JAVA_HOME=$env:JAVA_HOME" `
     "-DCREWX_PRODUCT_JAR=$taskForgePayload" `
     "-DCREWX_PRODUCT_JAR_NAMED=$taskNamedPayload" `
-    "-DCREWX_PRODUCT_JAR_NOTCH=$taskNotchPayload"
+    "-DCREWX_PRODUCT_JAR_NOTCH=$taskNotchPayload" `
+    "-DCREWX_PRODUCT_JAR_CHEATBREAKER=$taskCheatBreakerPayload"
 if ($LASTEXITCODE -ne 0) { throw 'Falha na configuracao nativa.' }
 & $taskCmake --build $taskBuild --config Release --target CrewXInjector
 if ($LASTEXITCODE -ne 0) { throw 'Falha no build do executavel.' }

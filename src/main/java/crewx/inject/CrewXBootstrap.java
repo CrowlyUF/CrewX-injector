@@ -35,11 +35,13 @@ public final class CrewXBootstrap {
 
     // Called synchronously by ClassFileLoadHook with the bytes supplied by the JVM.
     public static byte[] transformForInjection(Class<?> target, String className, byte[] original) {
-        byte[] named = NotchMappings.isNotch() ? NotchMappings.toNamed(original)
+        byte[] named = (NotchMappings.isNotch() || NotchMappings.isCheatBreaker())
+                ? NotchMappings.toNamed(original)
                 : NotchMappings.isSrg() ? NotchMappings.srgToNamed(original) : original;
         byte[] patched = CrewXRuntimeTransformer.transform(className.replace('.', '/'), named);
         if (patched == null) return null;
-        if (NotchMappings.isNotch()) patched = NotchMappings.toNotch(patched);
+        if (NotchMappings.isNotch() || NotchMappings.isCheatBreaker())
+            patched = NotchMappings.toNotch(patched);
         else if (NotchMappings.isSrg()) patched = NotchMappings.namedToSrg(patched);
         PENDING_HOOKS.put(target, new byte[][] {original, patched});
         return patched;
@@ -401,7 +403,9 @@ public final class CrewXBootstrap {
 
 
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.currentScreen instanceof net.minecraft.client.gui.GuiMainMenu) {
+        if (mc.currentScreen != null && !NotchMappings.isCheatBreaker()
+                && mc.currentScreen.getClass().getName().equals(
+                        NotchMappings.className("net.minecraft.client.gui.GuiMainMenu"))) {
             CrewXRuntimeHooks.onMainMenuInit(mc.currentScreen);
         }
     }

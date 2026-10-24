@@ -19,6 +19,7 @@ import crewx.module.Module;
 import crewx.util.ColorUtil;
 import crewx.util.RenderUtil;
 import crewx.util.TeamUtil;
+import crewx.util.PlayerHealth;
 import crewx.property.properties.*;
 import crewx.property.properties.BooleanProperty;
 import crewx.property.properties.ModeProperty;
@@ -207,7 +208,8 @@ public class NameTags extends Module {
                 ? clamp(1.1F - (float) tag.distance * 0.004F, 0.85F, 1.1F)
                 : clamp(7.0F / (float) Math.max(tag.distance, 1.0), 0.45F, 1.1F));
 
-        float health = entity.getHealth();
+        float health = entity instanceof EntityPlayer
+                ? PlayerHealth.current((EntityPlayer) entity) : entity.getHealth();
         float absorption = entity.getAbsorptionAmount();
         float percent = clamp((health + absorption) / Math.max(1.0F, entity.getMaxHealth()), 0.0F, 1.0F);
         float[] shown = this.shownHealth.get(entity);
