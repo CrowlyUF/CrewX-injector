@@ -28,6 +28,7 @@
 #define CREWX_NAMED_JAR_RESOURCE_ID 423
 #define CREWX_NOTCH_JAR_RESOURCE_ID 424
 #define CREWX_CHEATBREAKER_JAR_RESOURCE_ID 425
+#define CREWX_ORNITHE_JAR_RESOURCE_ID 426
 #define CREWX_CB_MINECRAFT "IlIlIlIIllIllIIIIIIIIIIlI"
 #define CREWX_CB_GET_MINECRAFT "IlIIIllIlllllIlIlIlllIIIl"
 #define CREWX_CB_DISPLAY_WIDTH "IlllIllIIIIllIllIIIlIlIll"
@@ -316,7 +317,8 @@ static jobject find_client_class_loader(JNIEnv *env) {
 }
 
 
-static int payload_resource_for_loader(JNIEnv *env, jobject loader) {
+static int payload_resource_for_loader(
+        JNIEnv *env, jobject loader, int report_unavailable) {
     jclass loader_class = (*env)->FindClass(env, "java/lang/ClassLoader");
     jmethodID load_class;
     jstring name;
@@ -356,8 +358,13 @@ static int payload_resource_for_loader(JNIEnv *env, jobject loader) {
             return 0;
         }
         (*env)->DeleteLocalRef(env, cb_class);
+#ifdef CREWX_HAS_CHEATBREAKER_PAYLOAD
         crewx_log(L"detected audited CheatBreaker 1.8.9 members; selecting CB payload");
         return CREWX_CHEATBREAKER_JAR_RESOURCE_ID;
+#else
+        crewx_log(L"CheatBreaker payload is unavailable in this build; refusing injection");
+        return 0;
+#endif
     }
     name = (*env)->NewStringUTF(env, "net.minecraft.client.Minecraft");
     if (name == NULL) return 0;
@@ -371,7 +378,9 @@ static int payload_resource_for_loader(JNIEnv *env, jobject loader) {
         if (name != NULL) (*env)->DeleteLocalRef(env, name);
         if (minecraft_class == NULL || (*env)->ExceptionCheck(env)) {
             (*env)->ExceptionClear(env);
-            crewx_log(L"Minecraft class is not available in the game loader");
+            if (report_unavailable) {
+                crewx_log(L"Minecraft class is not available in the game loader");
+            }
             return 0;
         }
         method = (*env)->GetStaticMethodID(env, minecraft_class, "A", "()Lave;");
@@ -395,6 +404,13 @@ static int payload_resource_for_loader(JNIEnv *env, jobject loader) {
     if (method != NULL && !(*env)->ExceptionCheck(env)) {
         crewx_log(L"detected SRG Minecraft members; selecting Forge payload");
         return CREWX_PRODUCT_JAR_RESOURCE_ID;
+    }
+    (*env)->ExceptionClear(env);
+    method = (*env)->GetStaticMethodID(env, minecraft_class, "m_20213497",
+            "()Lnet/minecraft/client/Minecraft;");
+    if (method != NULL && !(*env)->ExceptionCheck(env)) {
+        crewx_log(L"detected Ornithe intermediary Minecraft members; selecting OneClient payload");
+        return CREWX_ORNITHE_JAR_RESOURCE_ID;
     }
     (*env)->ExceptionClear(env);
     crewx_log(L"Minecraft member mapping is unsupported; refusing injection");
@@ -492,6 +508,38 @@ static int add_jar_to_loader(
         }
         crewx_log(L"appended product JAR to game URLClassLoader");
         return 1;
+    }
+
+    /* Fabric/Ornithe owns Minecraft in KnotClassLoader, not URLClassLoader. */
+    {
+        jclass game_loader_class = (*env)->GetObjectClass(env, *loader);
+        jmethodID get_delegate = game_loader_class == NULL ? NULL
+                : (*env)->GetMethodID(env, game_loader_class, "getDelegate",
+                        "()Lnet/fabricmc/loader/impl/launch/knot/KnotClassDelegate;");
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        if (get_delegate != NULL) {
+            jobject delegate = (*env)->CallObjectMethod(env, *loader, get_delegate);
+            jclass delegate_class = delegate == NULL ? NULL : (*env)->GetObjectClass(env, delegate);
+            jmethodID add_source = delegate_class == NULL ? NULL
+                    : (*env)->GetMethodID(env, delegate_class, "addCodeSource",
+                            "(Ljava/nio/file/Path;)V");
+            jmethodID to_path = (*env)->GetMethodID(env, file_class,
+                    "toPath", "()Ljava/nio/file/Path;");
+            jobject path_object = to_path == NULL ? NULL
+                    : (*env)->CallObjectMethod(env, file, to_path);
+            if (delegate == NULL || add_source == NULL || path_object == NULL
+                    || (*env)->ExceptionCheck(env)) {
+                crewx_log_pending_exception(env, L"resolve KnotClassLoader code source");
+                return 0;
+            }
+            (*env)->CallVoidMethod(env, delegate, add_source, path_object);
+            if ((*env)->ExceptionCheck(env)) {
+                crewx_log_pending_exception(env, L"KnotClassDelegate.addCodeSource");
+                return 0;
+            }
+            crewx_log(L"appended product JAR to Fabric KnotClassLoader");
+            return 1;
+        }
     }
 
     if (!(*env)->IsInstanceOf(env, *loader, url_loader_class)) {
@@ -1073,7 +1121,37 @@ static DWORD WINAPI bootstrap_thread(LPVOID parameter) {
         crewx_log(L"game thread (Client/Render/main) was not found within 60 seconds");
         goto cleanup;
     }
-    resource_id = payload_resource_for_loader(env, loader);
+    /*
+     * Some launchers (notably current CheatBreaker) create a usable main-thread
+     * context loader before the Minecraft class has been defined.  Do not pin
+     * that early loader and abort: keep looking for the loader that actually
+     * owns Minecraft, then probe the payload mapping.  This stays entirely in
+     * bootstrap and adds no work after injection has completed.
+     */
+    for (attempt = 0; attempt < 600 && resource_id == 0; ++attempt) {
+        jobject minecraft_loader = find_loaded_minecraft_class_loader(env);
+        if (minecraft_loader != NULL) {
+            if (loader != NULL) {
+                (*env)->DeleteLocalRef(env, loader);
+            }
+            loader = minecraft_loader;
+        } else if (loader == NULL && attempt > 100) {
+            loader = find_client_class_loader(env);
+        }
+        if (loader != NULL) {
+            resource_id = payload_resource_for_loader(env, loader, 0);
+        }
+        if (resource_id == 0) {
+            Sleep(100);
+        }
+    }
+    if (resource_id == 0) {
+        if (loader != NULL) {
+            (void)payload_resource_for_loader(env, loader, 1);
+        } else {
+            crewx_log(L"Minecraft class is not available in the game loader");
+        }
+    }
     if (resource_id == 0 || !materialize_embedded_product_jar(resource_id,
             jar_path, sizeof(jar_path) / sizeof(jar_path[0]))) {
         goto cleanup;

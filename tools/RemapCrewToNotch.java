@@ -77,7 +77,9 @@ public final class RemapCrewToNotch {
                             p[1].substring(p[1].lastIndexOf('/') + 1));
                 }
             }
-            methods.put("net/minecraft/entity/EntityLivingBase/moveFlying (FFF)V", "a");
+            if ("pr".equals(classes.get("net/minecraft/entity/EntityLivingBase"))) {
+                methods.put("net/minecraft/entity/EntityLivingBase/moveFlying (FFF)V", "a");
+            }
             if (gameJar != null) {
                 try (JarFile jar = new JarFile(gameJar.toFile())) {
                     Enumeration<JarEntry> entries = jar.entries();

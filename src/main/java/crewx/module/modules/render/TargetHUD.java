@@ -1,6 +1,7 @@
 package crewx.module.modules.render;
 
-import crewx.gui.ClientFont;
+import crewx.clickgui.clone.mc.TargetHudFont;
+import crewx.gui.GuiRender;
 import crewx.module.modules.combat.*;
 import crewx.module.modules.movement.*;
 import crewx.module.modules.render.*;
@@ -8,7 +9,6 @@ import crewx.module.modules.player.*;
 import crewx.module.modules.misc.*;
 
 import crewx.CrewX;
-import crewx.clickgui.render.RoundedUtils;
 import crewx.event.EventTarget;
 import crewx.event.types.EventType;
 import crewx.events.PacketEvent;
@@ -24,11 +24,14 @@ import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.network.NetworkPlayerInfo;
+import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.item.EntityArmorStand;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.client.C02PacketUseEntity;
 import net.minecraft.network.play.client.C02PacketUseEntity.Action;
 import net.minecraft.util.ResourceLocation;
@@ -43,17 +46,12 @@ import java.util.Locale;
 
 public class TargetHUD extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
-    // Jello look: fixed colours on purpose (independent of the HUD theme)
-    private static final int PANEL = 0x1C1E23;
-    private static final int TRACK = 0x33FFFFFF;
-    private static final int BAR = 0xFFE6E6E6;
-    private static final int NAME = 0xFFFFFFFF;
-    private static final int WIN = 0xFF5BD47A;
-    private static final int LOSE = 0xFFEF5B5B;
-    private static final int DRAW = 0xFFE9B949;
-    private static final float HEIGHT = 32.0F;
-    private static final float HEAD = 24.0F;
-    private static final float PAD = 4.0F;
+    private static final int PANEL = 0x131313;
+    private static final int NAME = 0xDCE6E6EC;
+    private static final int ACCENT_FALLBACK = 0xFFB1FF80;
+    private static final float HEIGHT = 24.0F;
+    private static final float HEAD = 16.0F;
+    private static final float PAD = 2.0F;
 
     private final TimerUtil lastAttackTimer = new TimerUtil();
     private EntityLivingBase lastTarget = null;
@@ -67,7 +65,6 @@ public class TargetHUD extends Module {
     public final FloatProperty scale = new FloatProperty("Scale", 1.0f, 0.5f, 1.5f);
     public final IntProperty offX = new IntProperty("Position X", 100, 0, 2000);
     public final IntProperty offY = new IntProperty("Position Y", 100, 0, 2000);
-    public final PercentProperty backgroundAlpha = new PercentProperty("Background Alpha", 92);
     public final BooleanProperty showHead = new BooleanProperty("Show Head", true);
 
     public final BooleanProperty kaOnly = new BooleanProperty("KA Only", true);
@@ -142,6 +139,7 @@ public class TargetHUD extends Module {
         if (entityLivingBase instanceof EntityPlayer) {
             NetworkPlayerInfo playerInfo = mc.getNetHandler().getPlayerInfo(entityLivingBase.getName());
             if (playerInfo != null) return playerInfo.getLocationSkin();
+            return DefaultPlayerSkin.getDefaultSkin(entityLivingBase.getUniqueID());
         }
         return null;
     }
@@ -177,9 +175,13 @@ public class TargetHUD extends Module {
 
         String name = target.getName();
         boolean head = showHead.getValue() && getSkin(target) != null;
-        float textX = PAD + (head ? HEAD + 6.0F : 2.0F);
-        float letterW = ClientFont.getStringWidthFloat("W");
-        float width = Math.max(120.0F, textX + ClientFont.getStringWidthFloat(name) + 8.0F + letterW + PAD + 2.0F);
+        float textX = head ? 19.5F : 2.0F;
+        float healthDifference = getEntityHealth(mc.thePlayer) - health;
+        float roundedDifference = Math.round(Math.abs(healthDifference) * 10.0F) / 10.0F;
+        String difference = roundedDifference == (int) roundedDifference
+                ? Integer.toString((int) roundedDifference) : Float.toString(roundedDifference);
+        String sign = healthDifference > 0.0F ? "+" : healthDifference < 0.0F ? "-" : "";
+        float width = Math.max(80.0F, TargetHudFont.width(12, name) + 21.0F);
         float x = offX.getValue();
         float y = offY.getValue();
         if (following()) {
@@ -247,55 +249,96 @@ public class TargetHUD extends Module {
         GlStateManager.scale(renderScale, renderScale, 1.0f);
         GlStateManager.translate(-(x + width / 2.0f), -(y + HEIGHT / 2.0f), 0);
 
-        // soft shadow + panel
-        for (int i = 3; i >= 1; i--) {
-            RoundedUtils.drawRoundedRect(x - i, y - i + 1, width + i * 2, HEIGHT + i * 2, 0x14000000, 5.0F + i);
-        }
-        int bgAlpha = Math.round(255 * (backgroundAlpha.getValue() / 100.0f));
-        RoundedUtils.drawRoundedRect(x, y, width, HEIGHT, (bgAlpha << 24) | PANEL, 5.0F);
+        GuiRender.rect(x, y, width, HEIGHT, 0xAA000000 | PANEL);
 
-        GlStateManager.enableTexture2D();
-        GlStateManager.enableBlend();
+        TargetHudFont.draw(12, name, x + textX, y + 3.5F, NAME);
+        if (!sign.isEmpty()) {
+            float numberX = x + width - 2.0F - TargetHudFont.width(10, difference);
+            TargetHudFont.draw(8, sign, numberX - TargetHudFont.width(8, sign), y + 16.5F, NAME);
+            TargetHudFont.draw(10, difference, numberX, y + 16.0F, NAME);
+        }
+
+        HUD hud = (HUD) CrewX.moduleManager.modules.get(HUD.class);
+        int accent = hud == null ? ACCENT_FALLBACK : hud.getColor(System.currentTimeMillis()).getRGB();
+
+        float barX = x + 1.5F;
+        float barY = y + HEIGHT - 4.5F;
+        float barW = width - 3.0F;
+        GuiRender.rect(barX, barY, barW, 3.0F, 0x7F27272A);
+        GuiRender.rect(barX + 0.5F, barY + 0.5F, barW - 1.0F, 2.0F, 0xAA000000 | PANEL);
+        float trail = TargetHudMath.fraction(visualHealth, maxHealth) * (barW - 1.0F);
+        float filled = TargetHudMath.fraction(health, maxHealth) * (barW - 1.0F);
+        if (trail > 0.0F) {
+            GuiRender.rect(barX + 0.5F, barY + 0.5F, trail, 2.0F, darken(accent));
+        }
+        if (filled > 0.0F) {
+            GuiRender.rect(barX + 0.5F, barY + 0.5F, filled, 2.0F, accent);
+        }
+        float absorption = TargetHudMath.fraction(target.getAbsorptionAmount(), maxHealth) * (barW - 1.0F);
+        if (absorption > 0.0F) {
+            int bright = 0xFF000000 | (Math.min(255, (int) (((accent >> 16) & 255) / 0.45F)) << 16)
+                    | (Math.min(255, (int) (((accent >> 8) & 255) / 0.45F)) << 8)
+                    | Math.min(255, (int) ((accent & 255) / 0.45F));
+            GuiRender.rect(barX + 0.5F, barY + 0.5F, absorption, 2.0F, bright);
+        }
+
         if (head) {
             ResourceLocation skin = getSkin(target);
-            float hurt = target.hurtTime > 0 ? 0.6F : 1.0F;     // red flash on hit, like vanilla
+            float hurt = target.hurtTime > 0 ? Math.min(1.0F, target.hurtTime / 21.5F) : 0.0F;
             mc.getTextureManager().bindTexture(skin);
-            GlStateManager.color(1.0f, hurt, hurt, 1.0f);
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            GlStateManager.color(1.0F - hurt * (18.0F / 255.0F),
+                    1.0F - hurt * (195.0F / 255.0F), 1.0F - hurt * (195.0F / 255.0F), 1.0F);
             GlStateManager.pushMatrix();
-            GlStateManager.translate(x + PAD, y + PAD, 0.0F);
-            Gui.drawScaledCustomSizeModalRect(0, 0, 8.0f, 8.0f, 8, 8, (int) HEAD, (int) HEAD, 64.0f, 64.0f);
-            Gui.drawScaledCustomSizeModalRect(0, 0, 40.0f, 8.0f, 8, 8, (int) HEAD, (int) HEAD, 64.0f, 64.0f);
+            GlStateManager.translate(x + 2.0F, y + 2.0F, 0.0F);
+            Gui.drawScaledCustomSizeModalRect(0, 0, 8.0F, 8.0F, 8, 8, (int) HEAD, (int) HEAD, 64.0F, 64.0F);
+            Gui.drawScaledCustomSizeModalRect(0, 0, 40.0F, 8.0F, 8, 8, (int) HEAD, (int) HEAD, 64.0F, 64.0F);
             GlStateManager.popMatrix();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         }
-        GlStateManager.color(1.0f, 1.0f, 1.0f, 1.0f);
-
-        // name + W/L/D verdict
-        float fontH = ClientFont.getHeight();
-        float nameY = y + 6.0F;
-        float maxName = width - textX - PAD - letterW - 8.0F;
-        String fitted = ClientFont.getStringWidthFloat(name) > maxName
-                ? ClientFont.trimStringToWidth(name, Math.max(1, (int) maxName - 6)) + "\u2026" : name;
-        ClientFont.drawString(fitted, x + textX, nameY, NAME, false);
-        char verdict = TargetHudMath.verdict(getEntityHealth(mc.thePlayer), health);
-        int verdictColor = verdict == 'W' ? WIN : verdict == 'L' ? LOSE : DRAW;
-        String letter = String.valueOf(verdict);
-        ClientFont.drawString(letter, x + width - PAD - 2.0F - ClientFont.getStringWidthFloat(letter), nameY, verdictColor, false);
-
-        // health bar: drains with an animation when the target takes damage
-        float barX = x + textX;
-        float barW = width - textX - PAD - 2.0F;
-        float barH = 3.0F;
-        float barY = Math.max(nameY + fontH + 3.0F, y + HEIGHT - PAD - barH - 3.0F);
-        RoundedUtils.drawRoundedRect(barX, barY, barW, barH, TRACK, barH / 2.0F);
-        float filled = TargetHudMath.fraction(visualHealth, maxHealth) * barW;
-        if (filled > 0.5F) {
-            RoundedUtils.drawRoundedRect(barX, barY, Math.max(barH, filled), barH, BAR, barH / 2.0F);
+        if (target instanceof EntityPlayer) {
+            drawEquipment((EntityPlayer) target, x + 20.0F, y + 10.0F);
         }
 
         GlStateManager.enableTexture2D();
         GlStateManager.color(1.0f, 1.0f, 1.0f, 1.0f);
         GlStateManager.disableBlend();
         GlStateManager.popMatrix();
+    }
+
+    private static int darken(int color) {
+        return 0xFF000000 | (((int) (((color >> 16) & 255) * 0.63F)) << 16)
+                | (((int) (((color >> 8) & 255) * 0.63F)) << 8)
+                | ((int) ((color & 255) * 0.63F));
+    }
+
+    private void drawEquipment(EntityPlayer player, float x, float y) {
+        ItemStack[] items = new ItemStack[5];
+        items[0] = player.getHeldItem();
+        for (int i = 0; i < 4; i++) items[i + 1] = player.inventory.armorInventory[3 - i];
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(x, y, 0.0F);
+        GlStateManager.scale(0.5F, 0.5F, 0.5F);
+        GlStateManager.clear(GL11.GL_DEPTH_BUFFER_BIT);
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        RenderHelper.enableGUIStandardItemLighting();
+        try {
+            int offset = 0;
+            for (ItemStack item : items) {
+                if (item != null) {
+                    mc.getRenderItem().renderItemAndEffectIntoGUI(item, offset, 0);
+                    offset += 16;
+                }
+            }
+        } finally {
+            RenderHelper.disableStandardItemLighting();
+            GlStateManager.disableDepth();
+            GlStateManager.enableBlend();
+            GlStateManager.enableTexture2D();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            GlStateManager.popMatrix();
+        }
     }
 
     /** Follow mode: where the target is on screen this frame, projected with the world camera. */

@@ -89,7 +89,6 @@ public final class CrewXBootstrap {
             "net.minecraft.block.BlockPane",
             "net.minecraft.block.BlockWeb",
             "net.minecraft.client.renderer.BlockRendererDispatcher",
-            "crewx.module.modules.misc.BedNuker",
     };
 
     private CrewXBootstrap() {

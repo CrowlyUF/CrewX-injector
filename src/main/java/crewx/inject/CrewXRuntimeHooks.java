@@ -942,6 +942,11 @@ public final class CrewXRuntimeHooks {
 
     public static void onChatTranslate(float x, float y, float z) {
         try {
+            crewx.module.modules.render.ChatCustomization settings = chatSettings();
+            if (settings == null || !settings.isEnabled()) {
+                GlStateManager.translate(x, y, z);
+                return;
+            }
             net.minecraft.client.gui.GuiNewChat chat = Minecraft.getMinecraft().ingameGUI.getChatGUI();
             float scale = Math.max(0.01F, chat.getChatScale());
             GlStateManager.translate(x + crewx.gui.ChatPosition.getOffsetX() / scale,
@@ -952,7 +957,10 @@ public final class CrewXRuntimeHooks {
     }
 
     public static void onChatLineBackground(int left, int top, int right, int bottom, int color) {
-
+        crewx.module.modules.render.ChatCustomization settings = chatSettings();
+        if (settings == null || !settings.isEnabled() || settings.background.getValue() == 2) {
+            net.minecraft.client.gui.Gui.drawRect(left, top, right, bottom, color);
+        }
     }
 
     public static void onChatInputBar(int left, int top, int right, int bottom, int color) {
@@ -978,6 +986,8 @@ public final class CrewXRuntimeHooks {
 
     public static void onChatPanel(net.minecraft.client.gui.GuiNewChat chat, int updateCounter) {
         try {
+            crewx.module.modules.render.ChatCustomization settings = chatSettings();
+            if (settings == null || !settings.isEnabled() || settings.background.getValue() != 0) return;
             java.util.List<net.minecraft.client.gui.ChatLine> lines = chatLines(chat);
             if (lines == null || lines.isEmpty()) return;
             int start = Math.max(0, chatScroll(chat));
@@ -994,16 +1004,18 @@ public final class CrewXRuntimeHooks {
             float scale = Math.max(0.01F, chat.getChatScale());
             float panelWidth = (float) Math.ceil(chat.getChatWidth() / scale) + 8.0F;
             float panelHeight = visible * 9.0F;
+            int baseAlpha = Math.max(0, Math.min(200,
+                    Math.round(200.0F * settings.opacity.getValue() / 100.0F)));
             int alpha;
             if (chat.getChatOpen()) {
-                alpha = 174;
+                alpha = baseAlpha;
             } else {
                 net.minecraft.client.gui.ChatLine newest = lines.get(Math.min(lines.size() - 1, start));
                 if (newest == null) return;
                 double fade = Math.max(0.0D, Math.min(1.0D,
                         1.0D - (updateCounter - newest.getUpdatedCounter()) / 200.0D));
                 float opacity = Minecraft.getMinecraft().gameSettings.chatOpacity * 0.9F + 0.1F;
-                alpha = Math.max(0, Math.min(220, (int) (174.0D * fade * fade * opacity)));
+                alpha = Math.max(0, Math.min(200, (int) (baseAlpha * fade * fade * opacity)));
             }
             if (alpha <= 0) return;
             float x = -1.5F;
@@ -1025,6 +1037,10 @@ public final class CrewXRuntimeHooks {
     public static int onChatDrawString(net.minecraft.client.gui.FontRenderer font, String text,
             float x, float y, int color, net.minecraft.client.gui.GuiNewChat chat, int updateCounter) {
         try {
+            crewx.module.modules.render.ChatCustomization settings = chatSettings();
+            if (settings == null || !settings.isEnabled() || !settings.messageAnimation.getValue()) {
+                return font.drawStringWithShadow(text, x, y, color);
+            }
             java.util.List<net.minecraft.client.gui.ChatLine> lines = chatLines(chat);
             int start = Math.max(0, chatScroll(chat));
             int end = Math.min(lines.size(), start + chat.getLineCount());
@@ -1043,6 +1059,14 @@ public final class CrewXRuntimeHooks {
 
         }
         return font.drawStringWithShadow(text, x, y, color);
+    }
+
+    private static crewx.module.modules.render.ChatCustomization chatSettings() {
+        if (crewx.CrewX.moduleManager == null) return null;
+        Object module = crewx.CrewX.moduleManager.modules.get(
+                crewx.module.modules.render.ChatCustomization.class);
+        return module instanceof crewx.module.modules.render.ChatCustomization
+                ? (crewx.module.modules.render.ChatCustomization) module : null;
     }
 
     public static boolean onSpawnMobPacket(Object packetObject) {

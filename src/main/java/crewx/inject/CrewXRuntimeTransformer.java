@@ -166,9 +166,6 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                 case "net/minecraft/client/renderer/BlockRendererDispatcher":
                     patched = transformBlockRendererDispatcher(original);
                     break;
-                case "crewx/module/modules/misc/BedNuker":
-                    patched = transformBedNuker(original);
-                    break;
                 default:
                     return null;
             }
@@ -1349,39 +1346,6 @@ public final class CrewXRuntimeTransformer implements Opcodes {
             @Override String hookName() { return "onDrawButton"; }
             @Override String hookDescriptor() { return "(Ljava/lang/Object;II)Z"; }
         });
-    }
-
-    private static byte[] transformBedNuker(byte[] original) {
-        final boolean[] fixed = new boolean[1];
-        byte[] current = rewrite(original, output -> new ClassVisitor(ASM9, output) {
-            @Override
-            public MethodVisitor visitMethod(int access, String name, String descriptor,
-                                             String signature, String[] exceptions) {
-                MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
-                return new MethodVisitor(ASM9, base) {
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String methodName,
-                                                String methodDesc, boolean isInterface) {
-                        if (opcode == INVOKEVIRTUAL
-                                && "net/minecraft/item/Item".equals(owner)
-                                && "getDigSpeed".equals(methodName)
-                                && "(Lnet/minecraft/item/ItemStack;Lnet/minecraft/block/state/IBlockState;)F".equals(methodDesc)) {
-                            fixed[0] = true;
-                            mv.visitMethodInsn(INVOKEINTERFACE,
-                                    "net/minecraft/block/state/IBlockState", "getBlock",
-                                    "()Lnet/minecraft/block/Block;", true);
-                            mv.visitMethodInsn(INVOKEVIRTUAL, "net/minecraft/item/Item",
-                                    "getStrVsBlock",
-                                    "(Lnet/minecraft/item/ItemStack;Lnet/minecraft/block/Block;)F", false);
-                            return;
-                        }
-                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, isInterface);
-                    }
-                };
-            }
-        });
-        if (!fixed[0]) CrewXBootstrap.log("transform: BedNuker getDigSpeed call not found");
-        return fixed[0] ? current : null;
     }
 
     private static byte[] transformWorld(byte[] original) {

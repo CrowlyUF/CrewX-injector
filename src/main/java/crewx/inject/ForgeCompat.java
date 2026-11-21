@@ -24,7 +24,7 @@ public final class ForgeCompat {
     }
 
     public static void registerAccountEvents() {
-        if (!PRESENT) return;
+        if (!PRESENT || NotchMappings.isOrnithe()) return;
         try {
             Class<?> binding = Class.forName("crewx.accountmanager.ForgeBinding", true,
                     ForgeCompat.class.getClassLoader());

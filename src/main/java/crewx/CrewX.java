@@ -174,6 +174,8 @@ public class CrewX {
         moduleManager.modules.put(AutoRegister.class, new AutoRegister());
         moduleManager.modules.put(FreeLook.class, new FreeLook());
         moduleManager.modules.put(Spotify.class, new Spotify());
+        moduleManager.modules.put(Freecam.class, new Freecam());
+        moduleManager.modules.put(ChatCustomization.class, new ChatCustomization());
         commandManager.commands.add(new BindCommand());
         commandManager.commands.add(new ConfigCommand());
         commandManager.commands.add(new DenickCommand());

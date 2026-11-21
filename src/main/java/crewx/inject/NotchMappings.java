@@ -18,7 +18,9 @@ import org.objectweb.asm.commons.Remapper;
 
 public final class NotchMappings {
     private static final Mapping MAPPING = load();
+    private static final Mapping ORNITHE_MAPPING = load("ornithe-joined.srg");
     private static Boolean notch;
+    private static Boolean ornithe;
     private static Boolean srg;
     private static Boolean cheatBreaker;
 
@@ -27,6 +29,7 @@ public final class NotchMappings {
 
     public static synchronized boolean isNotch() {
         if (isCheatBreaker()) return false;
+        if (isOrnithe()) return true;
         if (notch == null) {
             try {
                 ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -56,6 +59,24 @@ public final class NotchMappings {
         return notch.booleanValue();
     }
 
+    public static synchronized boolean isOrnithe() {
+        if (ornithe == null) {
+            try {
+                Class<?> minecraft = Thread.currentThread().getContextClassLoader()
+                        .loadClass("net.minecraft.client.Minecraft");
+                minecraft.getMethod("m_20213497");
+                ornithe = Boolean.TRUE;
+            } catch (Throwable ignored) {
+                ornithe = Boolean.FALSE;
+            }
+        }
+        return ornithe.booleanValue();
+    }
+
+    private static Mapping active() {
+        return isOrnithe() ? ORNITHE_MAPPING : MAPPING;
+    }
+
     public static synchronized boolean isCheatBreaker() {
         if (cheatBreaker == null) {
             ClassLoader loader = Thread.currentThread().getContextClassLoader();
@@ -76,7 +97,7 @@ public final class NotchMappings {
         if (isCheatBreaker()) return CheatBreakerMappings.className(named);
         if (!isNotch()) return named;
         String internal = named.replace('.', '/');
-        return MAPPING.namedToObf.getOrDefault(internal, internal).replace('/', '.');
+        return active().namedToObf.getOrDefault(internal, internal).replace('/', '.');
     }
 
     public static String methodName(String owner, String name, String descriptor) {
@@ -86,7 +107,7 @@ public final class NotchMappings {
             return MAPPING.namedSrgMethods.getOrDefault(
                     owner.replace('.', '/') + "/" + name + " " + descriptor, name);
         }
-        return MAPPING.namedMethods.getOrDefault(
+        return active().namedMethods.getOrDefault(
                 owner.replace('.', '/') + "/" + name + " " + descriptor, name);
     }
 
@@ -97,14 +118,14 @@ public final class NotchMappings {
             return MAPPING.namedSrgFields.getOrDefault(owner.replace('.', '/') + "/" + name, name);
         }
 
-        if ("net.minecraft.client.Minecraft".equals(owner) && "logger".equals(name)) {
+        if (!isOrnithe() && "net.minecraft.client.Minecraft".equals(owner) && "logger".equals(name)) {
             return "K";
         }
 
-        if ("net.minecraft.item.ItemSword".equals(owner) && "toolMaterial".equals(name)) {
+        if (!isOrnithe() && "net.minecraft.item.ItemSword".equals(owner) && "toolMaterial".equals(name)) {
             return "b";
         }
-        return MAPPING.namedFields.getOrDefault(
+        return active().namedFields.getOrDefault(
                 owner.replace('.', '/') + "/" + name, name);
     }
 
@@ -119,12 +140,12 @@ public final class NotchMappings {
         }
         String key = candidate.getDeclaringClass().getName().replace('.', '/')
                 + "/" + candidate.getName() + " " + Type.getMethodDescriptor(candidate);
-        return namedName.equals(MAPPING.obfMethods.get(key));
+        return namedName.equals(active().obfMethods.get(key));
     }
 
     public static byte[] toNamed(byte[] notchBytes) {
         if (isCheatBreaker()) return CheatBreakerMappings.toNamed(notchBytes);
-        return remap(notchBytes, MAPPING.toNamed);
+        return remap(notchBytes, active().toNamed);
     }
 
     public static boolean isSrg() {
@@ -153,14 +174,14 @@ public final class NotchMappings {
 
     public static byte[] toNotch(byte[] namedBytes) {
         if (isCheatBreaker()) return CheatBreakerMappings.toCheatBreaker(namedBytes);
-        return remap(namedBytes, MAPPING.toNotch);
+        return remap(namedBytes, active().toNotch);
     }
 
     public static byte[] namedResourceBytes(String namedInternal, ClassLoader loader)
             throws IOException {
         String obfuscated = isCheatBreaker()
                 ? CheatBreakerMappings.classInternalName(namedInternal)
-                : MAPPING.namedToObf.get(namedInternal);
+                : active().namedToObf.get(namedInternal);
         if (obfuscated == null) return null;
         InputStream input = loader.getResourceAsStream(obfuscated + ".class");
         if (input == null) return null;
@@ -183,11 +204,15 @@ public final class NotchMappings {
     }
 
     private static Mapping load() {
+        return load("notch-joined.srg");
+    }
+
+    private static Mapping load(String mappingFile) {
         Mapping mapping = new Mapping();
         try {
             readCsv("notch-fields.csv", mapping.fieldCsv);
             readCsv("notch-methods.csv", mapping.methodCsv);
-            try (BufferedReader lines = resource("notch-joined.srg")) {
+            try (BufferedReader lines = resource(mappingFile)) {
                 String line;
                 while ((line = lines.readLine()) != null) {
                     String[] parts = line.split(" +");
@@ -217,8 +242,10 @@ public final class NotchMappings {
             }
 
 
-            mapping.obfMethods.put("pr/a (FFF)V", "moveFlying");
-            mapping.namedMethods.put("net/minecraft/entity/EntityLivingBase/moveFlying (FFF)V", "a");
+            if ("notch-joined.srg".equals(mappingFile)) {
+                mapping.obfMethods.put("pr/a (FFF)V", "moveFlying");
+                mapping.namedMethods.put("net/minecraft/entity/EntityLivingBase/moveFlying (FFF)V", "a");
+            }
             mapping.srgNamedMethods.put("net/minecraft/entity/EntityLivingBase/func_70060_a (FFF)V", "moveFlying");
             mapping.namedSrgMethods.put("net/minecraft/entity/EntityLivingBase/moveFlying (FFF)V", "func_70060_a");
 

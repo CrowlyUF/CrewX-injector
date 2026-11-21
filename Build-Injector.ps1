@@ -38,14 +38,14 @@ try {
 $taskAsmBase = Join-Path $env:USERPROFILE '.gradle\caches\modules-2\files-2.1\org.ow2.asm'
 $taskAsmJars = @()
 foreach ($taskModule in @('asm', 'asm-commons', 'asm-tree')) {
-    $taskCandidates = @(Get-ChildItem -LiteralPath (Join-Path $taskAsmBase $taskModule) -Recurse -Filter "$taskModule-9.7.jar" -File -ErrorAction SilentlyContinue)
-    if ($taskCandidates.Count -eq 0) { throw "Dependencia ASM 9.7 ausente: $taskModule" }
+    $taskCandidates = @(Get-ChildItem -LiteralPath (Join-Path $taskAsmBase $taskModule) -Recurse -Filter "$taskModule-9.11.1.jar" -File -ErrorAction SilentlyContinue)
+    if ($taskCandidates.Count -eq 0) { throw "Dependencia ASM 9.11.1 ausente: $taskModule" }
     $taskAsmJars += $taskCandidates[0].FullName
 }
 $taskAsmCp = $taskAsmJars -join ';'
 $taskClasses = Join-Path $taskRoot 'build-tools'
 New-Item -ItemType Directory -Path $taskClasses -Force | Out-Null
-& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java') (Join-Path $taskTools 'GenerateCheatBreakerSrg.java') (Join-Path $taskTools 'PayloadCompatibilityCheck.java') (Join-Path $taskTools 'VerifyCrewCheatBreakerPayload.java')
+& $taskJavac -cp $taskAsmCp -d $taskClasses (Join-Path $taskTools 'AccessorRewriter.java') (Join-Path $taskTools 'RemapCrewToNotch.java') (Join-Path $taskTools 'GenerateCheatBreakerSrg.java') (Join-Path $taskTools 'GenerateOrnitheSrg.java') (Join-Path $taskTools 'PayloadCompatibilityCheck.java') (Join-Path $taskTools 'VerifyCrewCheatBreakerPayload.java')
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar as ferramentas de empacotamento.' }
 
 $taskLibs = Join-Path $taskJavaProject 'build\libs'
@@ -55,8 +55,9 @@ $taskForgeInput = Join-Path $taskLibs 'CrewX.jar'
 $taskForgePayload = Join-Path $taskLibs 'CrewX-inject-forge.jar'
 $taskNamedPayload = Join-Path $taskLibs 'CrewX-inject-named.jar'
 $taskNotchPayload = Join-Path $taskLibs 'CrewX-inject-notch.jar'
+$taskOrnithePayload = Join-Path $taskLibs 'CrewX-inject-ornithe.jar'
 $taskCheatBreakerPayload = Join-Path $taskLibs 'CrewX-inject-cheatbreaker.jar'
-foreach ($taskFile in @($taskForgePayload, $taskNamedPayload, $taskNotchPayload, $taskCheatBreakerPayload)) {
+foreach ($taskFile in @($taskForgePayload, $taskNamedPayload, $taskNotchPayload, $taskOrnithePayload, $taskCheatBreakerPayload)) {
     if (Test-Path -LiteralPath $taskFile) { Remove-Item -LiteralPath $taskFile -Force }
 }
 & $taskJava -cp "$taskClasses;$taskAsmCp" AccessorRewriter $taskForgeInput $taskForgePayload
@@ -71,32 +72,48 @@ $taskMappings = Join-Path $taskJavaProject 'src\main\resources\crewx\inject'
     (Join-Path $taskMappings 'notch-fields.csv')
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload Badlion.' }
 
+$taskOrnitheMapping = Join-Path $taskClasses 'ornithe-joined.srg'
+& $taskJava -cp $taskClasses GenerateOrnitheSrg `
+    (Join-Path $taskMappings 'notch-joined.srg') `
+    (Join-Path $taskMappings 'ornithe-intermediary.tiny') $taskOrnitheMapping
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar os mappings Ornithe.' }
+& $taskJava -cp "$taskClasses;$taskAsmCp" RemapCrewToNotch `
+    $taskNamedPayload $taskOrnithePayload $taskOrnitheMapping `
+    (Join-Path $taskMappings 'notch-methods.csv') `
+    (Join-Path $taskMappings 'notch-fields.csv')
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload OneClient.' }
+
 $taskCheatBreakerGame = Join-Path $env:APPDATA 'CheatBreaker\downloads\versions\1.8.9\1.8.9.patch'
 $taskCheatBreakerHash = 'D6205D02A65F1EAE2513219A2E2237A826BCE33DD7B8B47680E9EE47D1F31EF8'
-if (-not (Test-Path -LiteralPath $taskCheatBreakerGame) -or
-        (Get-FileHash -LiteralPath $taskCheatBreakerGame -Algorithm SHA256).Hash -ne $taskCheatBreakerHash) {
-    throw 'CheatBreaker 1.8.9 instalado nao corresponde aos mappings auditados.'
+$taskCheatBreakerAvailable = (Test-Path -LiteralPath $taskCheatBreakerGame) -and
+    ((Get-FileHash -LiteralPath $taskCheatBreakerGame -Algorithm SHA256).Hash -eq $taskCheatBreakerHash)
+if ($taskCheatBreakerAvailable) {
+    $taskCheatBreakerSrg = Join-Path $taskClasses 'cheatbreaker189-joined.srg'
+    & $taskJava -cp $taskClasses GenerateCheatBreakerSrg `
+        (Join-Path $taskMappings 'cheatbreaker189.tiny') $taskCheatBreakerSrg
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao converter os mappings CheatBreaker.' }
+    & $taskJava -cp "$taskClasses;$taskAsmCp" RemapCrewToNotch `
+        $taskNamedPayload $taskCheatBreakerPayload $taskCheatBreakerSrg `
+        (Join-Path $taskMappings 'notch-methods.csv') `
+        (Join-Path $taskMappings 'notch-fields.csv') $taskCheatBreakerGame
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload CheatBreaker.' }
+    & $taskJava -cp "$taskClasses;$taskAsmCp" VerifyCrewCheatBreakerPayload `
+        $taskCheatBreakerPayload $taskCheatBreakerGame `
+        (Join-Path $taskClasses 'cheatbreaker-linkage-errors.txt')
+    if ($LASTEXITCODE -ne 0) { throw 'Falha na verificacao de ligacoes do payload CheatBreaker.' }
+} else {
+    Write-Host 'CheatBreaker auditado ausente; gerando loader sem payload CheatBreaker.'
 }
-$taskCheatBreakerSrg = Join-Path $taskClasses 'cheatbreaker189-joined.srg'
-& $taskJava -cp $taskClasses GenerateCheatBreakerSrg `
-    (Join-Path $taskMappings 'cheatbreaker189.tiny') $taskCheatBreakerSrg
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao converter os mappings CheatBreaker.' }
-& $taskJava -cp "$taskClasses;$taskAsmCp" RemapCrewToNotch `
-    $taskNamedPayload $taskCheatBreakerPayload $taskCheatBreakerSrg `
-    (Join-Path $taskMappings 'notch-methods.csv') `
-    (Join-Path $taskMappings 'notch-fields.csv') $taskCheatBreakerGame
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o payload CheatBreaker.' }
-& $taskJava -cp "$taskClasses;$taskAsmCp" VerifyCrewCheatBreakerPayload `
-    $taskCheatBreakerPayload $taskCheatBreakerGame `
-    (Join-Path $taskClasses 'cheatbreaker-linkage-errors.txt')
-if ($LASTEXITCODE -ne 0) { throw 'Falha na verificacao de ligacoes do payload CheatBreaker.' }
 
-& $taskJava -cp "$taskClasses;$taskAsmCp" PayloadCompatibilityCheck $taskForgePayload $taskNamedPayload $taskNotchPayload
+& $taskJava -cp "$taskClasses;$taskAsmCp" PayloadCompatibilityCheck $taskForgePayload $taskNamedPayload $taskNotchPayload $taskOrnithePayload
 if ($LASTEXITCODE -ne 0) { throw 'Falha na verificacao de compatibilidade Forge/Lunar.' }
 
 $taskBuild = Join-Path $taskRoot 'native-build'
 $taskCmake = (Get-Command cmake.exe -ErrorAction SilentlyContinue).Source
 if (-not $taskCmake) { $taskCmake = 'C:\Program Files\CMake\bin\cmake.exe' }
+if (-not (Test-Path -LiteralPath $taskCmake)) {
+    $taskCmake = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+}
 if (-not (Test-Path -LiteralPath $taskCmake)) { throw 'CMake nao encontrado.' }
 if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     $taskVswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
@@ -111,13 +128,16 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
         }
     }
 }
-& $taskCmake -S $taskNative -B $taskBuild -G 'NMake Makefiles' `
-    '-DCMAKE_BUILD_TYPE=Release' `
-    "-DCREWX_JAVA_HOME=$env:JAVA_HOME" `
-    "-DCREWX_PRODUCT_JAR=$taskForgePayload" `
-    "-DCREWX_PRODUCT_JAR_NAMED=$taskNamedPayload" `
-    "-DCREWX_PRODUCT_JAR_NOTCH=$taskNotchPayload" `
-    "-DCREWX_PRODUCT_JAR_CHEATBREAKER=$taskCheatBreakerPayload"
+$taskCmakeArgs = @('-S', $taskNative, '-B', $taskBuild, '-G', 'NMake Makefiles',
+    '-DCMAKE_BUILD_TYPE=Release', "-DCREWX_JAVA_HOME=$env:JAVA_HOME",
+    "-DCREWX_PRODUCT_JAR=$taskForgePayload",
+    "-DCREWX_PRODUCT_JAR_NAMED=$taskNamedPayload",
+    "-DCREWX_PRODUCT_JAR_NOTCH=$taskNotchPayload",
+    "-DCREWX_PRODUCT_JAR_ORNITHE=$taskOrnithePayload")
+if ($taskCheatBreakerAvailable) {
+    $taskCmakeArgs += "-DCREWX_PRODUCT_JAR_CHEATBREAKER=$taskCheatBreakerPayload"
+}
+& $taskCmake @taskCmakeArgs
 if ($LASTEXITCODE -ne 0) { throw 'Falha na configuracao nativa.' }
 & $taskCmake --build $taskBuild --config Release --target CrewXInjector
 if ($LASTEXITCODE -ne 0) { throw 'Falha no build do executavel.' }

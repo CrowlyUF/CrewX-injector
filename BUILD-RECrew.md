@@ -1,6 +1,12 @@
-# RECrew — Java 2.3 injetável
+# RECrew — Java 2.4 injetável
 
-Base: CrewX-2.3.zip. ORIGINAL-JAVA-SHA256.txt registra os hashes da base. A integração injetável adapta hooks, mapeamentos e referências opcionais dos clients. As correções de configs, desenho e Spotify descritas abaixo também estão nesta source. O Scaffold mantém o cálculo e as opções da versão Java 2.3; as adaptações do CheatBreaker ficam nos hooks e mapeamentos.
+Base injetável: CrewX 2.3. As mudanças Java do pacote CrewX-2.4.zip foram portadas para esta source. ORIGINAL-JAVA-SHA256.txt registra os hashes da base 2.3 para distinguir adaptações do injetável. A integração adapta hooks, mapeamentos e referências opcionais dos clients. As correções de configs, desenho e Spotify descritas abaixo permanecem nesta source.
+
+## Port da versão Java 2.4
+
+A source inclui a ClickGUI moderna (com a GUI anterior disponível pelo estilo Legacy), Freecam, ChatCustomization, fontes novas e as alterações Java 2.4 de módulos, renderização, chat e interface. Os hooks de chat do injetável respeitam as opções de ChatCustomization. O hook antigo de BedNuker foi removido porque a chamada compatível já está no código injetável. O Spotify da source injetável foi preservado.
+
+Validação local: 84 testes Java passaram e os payloads Forge, Lunar e Badlion foram verificados no build. A injeção e a aparência final ainda exigem teste no client.
 
 O módulo Spotify separado foi restaurado a partir da integração antiga do FDP/Vape, incluindo a tela HTML original dentro do Minecraft. Na primeira abertura, informe um Client ID do Spotify na tela de configuração e configure `http://127.0.0.1:43791/spotify-oauth-callback` como Redirect URI no aplicativo. O login abre o navegador do Windows e, após a autorização, a tela muda automaticamente para o navegador embutido. Nas aberturas seguintes, a interface HTML roda no navegador MCEF embutido; os binários nativos do MCEF são baixados via HTTPS na primeira utilização. A API só é consultada enquanto a tela está aberta, em threads separadas. Ao fechar, o browser e o servidor local são encerrados; não há desenho nem consulta Spotify por quadro durante a partida. O Chromium nativo permanece carregado até fechar o jogo, portanto o impacto real de memória e FPS requer teste no client. O MediaPlayer existente continua independente. As credenciais locais ficam em `.minecraft/CrewX/spotify.json`.
 
@@ -38,6 +44,8 @@ Windows x64, JDK 17, JDK 8, Visual Studio C++ e CMake. Compile uma cópia deste 
 
 Saída: dist/CrewXInjector.exe. Os diretórios build, native-build, build-tools e dist são artefatos de compilação e não precisam acompanhar a source em ZIP.
 
+O patch auditado do CheatBreaker é opcional. Se não estiver instalado no caminho esperado ou tiver hash diferente, o build gera o loader sem o payload CheatBreaker. Nesse caso, a DLL recusa a injeção nesse client e registra o motivo; Forge, Lunar e Badlion continuam disponíveis. Com o patch auditado presente, o payload CheatBreaker é gerado e verificado como antes.
+
 ## Verificação
 
 A suíte inclui os testes da source original, testes executáveis dos hooks e uma verificação de callbacks contra as classes reais do Minecraft. native/tests contém o teste do callback JVMTI numa JVM Java 8, incluindo aplicação, falhas, manutenção e restauração.
@@ -60,8 +68,14 @@ NameTags lê o objetivo de saúde do placar quando disponível. A lógica do Ant
 
 ## Movimento lateral sem entrada física
 
-KillAura, WTap, Velocity, Backtrack e MoveUtil são idênticos aos arquivos da source Java 2.3. No hook de entrada do injetável, quando nenhuma tecla física WASD está pressionada e nenhum módulo de movimento automático está ativo, uma entrada de movimento que restou pressionada é descartada. A primeira ocorrência de cada episódio registra os valores antes e depois dos módulos e o estado das teclas em `%TEMP%\CrewX\crewx-inject.log`. A verificação roda no tick de movimento, sem trabalho extra por frame de renderização. Confirme no client se o desvio cessou; o log distingue entrada presa de impulso ou correção do servidor.
+KillAura, WTap, Velocity e MoveUtil são idênticos aos arquivos da source Java 2.3. O Backtrack foi reescrito sobre os eventos e propriedades do CrewX (veja a seção Backtrack abaixo). No hook de entrada do injetável, quando nenhuma tecla física WASD está pressionada e nenhum módulo de movimento automático está ativo, uma entrada de movimento que restou pressionada é descartada. A primeira ocorrência de cada episódio registra os valores antes e depois dos módulos e o estado das teclas em `%TEMP%\CrewX\crewx-inject.log`. A verificação roda no tick de movimento, sem trabalho extra por frame de renderização. Confirme no client se o desvio cessou; o log distingue entrada presa de impulso ou correção do servidor.
 
 ## Spotify: reprodução de busca e Curtidas
 
 Músicas de playlist continuam iniciando pelo contexto da playlist. Músicas de busca e Curtidas usam o contexto do álbum e o URI da faixa para escolher a música. Quando o Spotify recusa uma solicitação, a tela do navegador mostra a mensagem retornada pelo servidor local. A consulta do álbum usa dados já presentes na resposta da busca ou biblioteca, sem uma requisição adicional por música e sem trabalho durante o render do jogo.
+
+## Backtrack
+
+O módulo foi portado do OpenAugustus para os eventos, propriedades e managers do CrewX, mantendo os modos BackTrack, LagTrack, Gomme, Ping e ClassicBackTrack, além dos filtros de alvo, critérios de abort, opções de hurt-time e ESP. BackTrack e Ping atrasam pacotes recebidos; LagTrack usa o LagManager; Gomme e ClassicBackTrack atrasam pacotes enviados. As opções usam nomes em kebab-case, portanto configs antigas do Backtrack não são importadas; o restante da config continua normal.
+
+O payload CheatBreaker só é regerado quando o `1.8.9.patch` auditado está instalado em `%APPDATA%\CheatBreaker\downloads\versions\1.8.9\1.8.9.patch` (SHA-256 `D6205D02A65F1EAE2513219A2E2237A826BCE33DD7B8B47680E9EE47D1F31EF8`). Sem ele, o build pode reutilizar o payload CheatBreaker anterior e atualizar apenas Forge/Lunar/Badlion.

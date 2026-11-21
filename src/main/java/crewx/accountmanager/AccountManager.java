@@ -56,7 +56,7 @@ public class AccountManager {
 
     public static void init() {
         SSLContext ignored = SSLUtils.getSSLContext();
-        ForgeBinding.register();
+        crewx.inject.ForgeCompat.registerAccountEvents();
 
         if (!file.exists()) {
             try {
