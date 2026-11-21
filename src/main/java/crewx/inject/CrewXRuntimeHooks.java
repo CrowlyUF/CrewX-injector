@@ -487,6 +487,7 @@ public final class CrewXRuntimeHooks {
                     org.lwjgl.input.Keyboard.KEY_RSHIFT);
             if (!rshiftDown) {
                 keyboardButtons[org.lwjgl.input.Keyboard.KEY_RSHIFT] = false;
+                consumedKeyboardButtons[org.lwjgl.input.Keyboard.KEY_RSHIFT] = false;
             }
             if (rshiftDown && !rshiftWasDown && !rshiftDispatchedThisTick
                     && mc.currentScreen == null) {
