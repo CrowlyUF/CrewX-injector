@@ -125,6 +125,8 @@ public final class CrewXClickGuiBridge {
             empty.modules.add(new ClickModule("No modules loaded"));
             cats.add(empty);
         }
+        crewx.inject.CrewXBootstrap.log("ClickGUI model built: " + cats.size()
+                + " categories, " + BOUND.size() + " modules");
         return new ClickGui(new Theme(), cats);
     }
 
@@ -378,6 +380,8 @@ public final class CrewXClickGuiBridge {
         @SuppressWarnings({"unchecked", "rawtypes"})
         public void set(double v) {
             super.set(v);
+            // NumberSetting's constructor invokes this override before prop is assigned.
+            if (prop == null) return;
             // Use super.get() AFTER clamp/step — never get() while it could re-read prop.
             double actual = super.get();
             try {

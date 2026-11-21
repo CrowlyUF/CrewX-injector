@@ -443,6 +443,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
         final boolean[] resize = new boolean[1];
         final int[] gameLoopTickCalls = new int[1];
         final int[] keyDispatchCalls = new int[1];
+        final int[] displayUpdateCalls = new int[1];
         byte[] current = rewrite(original, output -> new ClassVisitor(ASM9, output) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String descriptor,
@@ -550,6 +551,19 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                     rightClick[0] = true;
                     return cancellableVoid(base, true);
                 }
+                if (NotchMappings.isOrnithe()) {
+                    return new MethodVisitor(ASM9, base) {
+                        @Override public void visitMethodInsn(int opcode, String owner,
+                                String called, String desc, boolean isInterface) {
+                            if ("org/lwjgl/opengl/Display".equals(owner)
+                                    && "update".equals(called) && "()V".equals(desc)) {
+                                displayUpdateCalls[0]++;
+                                callHook(mv, "onClickGuiRenderAfterFrame", "()V");
+                            }
+                            super.visitMethodInsn(opcode, owner, called, desc, isInterface);
+                        }
+                    };
+                }
                 return base;
             }
 
@@ -582,7 +596,7 @@ public final class CrewXRuntimeTransformer implements Opcodes {
         }
         CrewXBootstrap.log("transform: Minecraft runGameLoop calls runTick "
                 + gameLoopTickCalls[0] + " time(s); key dispatch sites="
-                + keyDispatchCalls[0]);
+                + keyDispatchCalls[0] + "; display update sites=" + displayUpdateCalls[0]);
         if (!click[0] || !rightClick[0] || !loadWorld[0] || !hitBlock[0] || !resize[0]) {
             CrewXBootstrap.log("transform: Minecraft partial (click=" + click[0]
                     + " right=" + rightClick[0] + " load=" + loadWorld[0]
@@ -1229,8 +1243,10 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                         @Override
                         public void visitInsn(int opcode) {
                             if (opcode == RETURN) {
-                                mv.visitVarInsn(FLOAD, 1);
-                                callHook(mv, "onClickGuiRenderFallback", "(F)V");
+                                if (!NotchMappings.isOrnithe()) {
+                                    mv.visitVarInsn(FLOAD, 1);
+                                    callHook(mv, "onClickGuiRenderFallback", "(F)V");
+                                }
                                 mv.visitVarInsn(FLOAD, 1);
                                 callHook(mv, "onFrameOverlay", "(F)V");
                             }
@@ -1439,6 +1455,15 @@ public final class CrewXRuntimeTransformer implements Opcodes {
     private static byte[] transformEntityPlayerSP(byte[] original) {
         final boolean[] walking = new boolean[1];
         final boolean[] update = new boolean[1];
+        // OneClient inherits onUpdate instead of declaring it on EntityPlayerSP.
+        // In that layout, dispatch UpdateEvent around the walking packet method.
+        new ClassReader(original).accept(new ClassVisitor(ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                if ("onUpdate".equals(name) && "()V".equals(descriptor)) update[0] = true;
+                return null;
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
         final int[] rotationApplySites = new int[1];
         final int[] walkingApplySites = new int[1];
         byte[] current = rewrite(original, output -> new ClassVisitor(ASM9, output) {
@@ -1448,7 +1473,24 @@ public final class CrewXRuntimeTransformer implements Opcodes {
                 MethodVisitor base = super.visitMethod(access, name, descriptor, signature, exceptions);
                 if ("onUpdateWalkingPlayer".equals(name) && "()V".equals(descriptor)) {
                     walking[0] = true;
-                    return base;
+                    if (update[0]) return base;
+                    return new MethodVisitor(ASM9, base) {
+                        @Override public void visitCode() {
+                            super.visitCode();
+                            mv.visitVarInsn(ALOAD, 0);
+                            callHook(mv, "onUpdatePre", "(Ljava/lang/Object;)V");
+                            mv.visitVarInsn(ALOAD, 0);
+                            callHook(mv, "onUpdateApply", "(Ljava/lang/Object;)V");
+                            callHook(mv, "onPlayerUpdate", "()V");
+                        }
+                        @Override public void visitInsn(int opcode) {
+                            if (opcode == RETURN) {
+                                mv.visitVarInsn(ALOAD, 0);
+                                callHook(mv, "onUpdatePost", "(Ljava/lang/Object;)V");
+                            }
+                            super.visitInsn(opcode);
+                        }
+                    };
                 }
                 if ("onUpdate".equals(name) && "()V".equals(descriptor)) {
                     update[0] = true;

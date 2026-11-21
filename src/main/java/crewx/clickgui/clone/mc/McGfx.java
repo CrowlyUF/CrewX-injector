@@ -5,6 +5,8 @@ import crewx.clickgui.clone.core.FontId;
 import crewx.clickgui.clone.core.Gfx;
 import crewx.clickgui.clone.core.Theme;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL20;
+import org.lwjgl.opengl.GL30;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -23,6 +25,8 @@ public final class McGfx implements Gfx {
     private final Map<FontId, TtfFont> fonts = new EnumMap<FontId, TtfFont>(FontId.class);
     private final Deque<int[]> clips = new ArrayDeque<int[]>();
     private int displayHeight;
+    private int previousProgram;
+    private int previousFramebuffer;
 
     // contorno da forma atual: posição e normal de cada vértice
     private float[] px = new float[160], py = new float[160], nx = new float[160], ny = new float[160];
@@ -31,7 +35,16 @@ public final class McGfx implements Gfx {
     /** Prepara o estado do OpenGL. Chame antes de {@code gui.render(...)}. */
     public void begin(int displayWidth, int displayHeight) {
         this.displayHeight = displayHeight;
+        previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
+        previousFramebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+        if (crewx.inject.NotchMappings.isOrnithe()) {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+        }
+        GL20.glUseProgram(0);
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        if (crewx.inject.NotchMappings.isOrnithe()) {
+            GL11.glViewport(0, 0, displayWidth, displayHeight);
+        }
         GL11.glMatrixMode(GL11.GL_PROJECTION);
         GL11.glPushMatrix();
         GL11.glLoadIdentity();
@@ -44,8 +57,11 @@ public final class McGfx implements Gfx {
         GL11.glDisable(GL11.GL_FOG);
         GL11.glDisable(GL11.GL_CULL_FACE);
         GL11.glDisable(GL11.GL_ALPHA_TEST);
+        GL11.glDisable(GL11.GL_STENCIL_TEST);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        GL11.glColorMask(true, true, true, true);
+        GL11.glDepthMask(false);
         GL11.glEnable(GL11.GL_BLEND);
         GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glShadeModel(GL11.GL_SMOOTH);
@@ -60,6 +76,10 @@ public final class McGfx implements Gfx {
         GL11.glPopMatrix();
         GL11.glMatrixMode(GL11.GL_MODELVIEW);
         GL11.glPopAttrib();
+        GL20.glUseProgram(previousProgram);
+        if (crewx.inject.NotchMappings.isOrnithe()) {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFramebuffer);
+        }
     }
 
     // ------------------------------------------------------------------ formas

@@ -40,6 +40,7 @@ public final class RemapCrewToNotch {
             return ("crewx/gui/ClickGui".equals(owner)
                     || "crewx/gui/CrewXMainMenu".equals(owner)
                     || "crewx/gui/servers/CrewXServerSelector".equals(owner)
+                    || "crewx/clickgui/clone/mc/McClickGuiScreen".equals(owner)
                     || owner.startsWith("crewx/accountmanager/gui/Gui")
                     || "crewx/spotify/GuiSpotify".equals(owner)
                     || "crewx/spotify/SpotifyWebScreen".equals(owner))
@@ -55,7 +56,8 @@ public final class RemapCrewToNotch {
                     && (owner.endsWith("$GuiAccountList") || owner.endsWith("$StatsList"));
         }
 
-        Mapping(Path joined, Path methodsCsv, Path fieldsCsv, Path gameJar) throws IOException {
+        Mapping(Path joined, Path methodsCsv, Path fieldsCsv, Path gameJar,
+                Path intermediaryTiny) throws IOException {
             loadCsv(methodsCsv, mcpMethods);
             loadCsv(fieldsCsv, mcpFields);
             for (String line : Files.readAllLines(joined)) {
@@ -81,6 +83,15 @@ public final class RemapCrewToNotch {
                 methods.put("net/minecraft/entity/EntityLivingBase/moveFlying (FFF)V", "a");
             }
             if (gameJar != null) {
+                Map<String,String> gameClassNames = new HashMap<>();
+                if (intermediaryTiny != null) {
+                    for (String line : Files.readAllLines(intermediaryTiny)) {
+                        String[] parts = line.split("\\t");
+                        if (parts.length == 3 && "CLASS".equals(parts[0])) {
+                            gameClassNames.put(parts[1], parts[2]);
+                        }
+                    }
+                }
                 try (JarFile jar = new JarFile(gameJar.toFile())) {
                     Enumeration<JarEntry> entries = jar.entries();
                     while (entries.hasMoreElements()) {
@@ -89,9 +100,15 @@ public final class RemapCrewToNotch {
                         try (InputStream in = jar.getInputStream(entry)) {
                             ClassReader reader = new ClassReader(in);
                             List<String> parents = new ArrayList<>();
-                            if (reader.getSuperName() != null) parents.add(reader.getSuperName());
-                            parents.addAll(Arrays.asList(reader.getInterfaces()));
-                            gameParents.put(reader.getClassName(), parents);
+                            if (reader.getSuperName() != null) {
+                                parents.add(gameClassNames.getOrDefault(reader.getSuperName(),
+                                        reader.getSuperName()));
+                            }
+                            for (String itf : reader.getInterfaces()) {
+                                parents.add(gameClassNames.getOrDefault(itf, itf));
+                            }
+                            gameParents.put(gameClassNames.getOrDefault(reader.getClassName(),
+                                    reader.getClassName()), parents);
                         }
                     }
                 }
@@ -275,7 +292,8 @@ public final class RemapCrewToNotch {
 
     public static void main(String[] args) throws Exception {
         Mapping mapping = new Mapping(Paths.get(args[2]), Paths.get(args[3]), Paths.get(args[4]),
-                args.length > 5 ? Paths.get(args[5]) : null);
+                args.length > 5 ? Paths.get(args[5]) : null,
+                args.length > 6 ? Paths.get(args[6]) : null);
         int remapped = 0;
         try (JarFile input = new JarFile(args[0]);
              JarOutputStream output = new JarOutputStream(Files.newOutputStream(Paths.get(args[1])))) {

@@ -95,6 +95,7 @@ import org.lwjgl.opengl.Display;
 
 public final class CrewXRuntimeHooks {
     private static long clickGuiDrawAtFrameStart;
+    private static long modernClickGuiDrawAtFrameStart;
     private static boolean clickGuiFallbackLogged;
     private static boolean clickGuiFallbackErrorLogged;
     private static boolean frameOverlayFailureLogged;
@@ -108,13 +109,21 @@ public final class CrewXRuntimeHooks {
         crewx.util.HitchMonitor.frame();
         crewx.util.TextureGuard.tick();
         clickGuiDrawAtFrameStart = ClickGui.getDrawCount();
+        modernClickGuiDrawAtFrameStart = crewx.clickgui.clone.mc.McClickGuiScreen.getDrawCount();
     }
 
 
     public static void onClickGuiRenderFallback(float partialTicks) {
+        renderClickGuiIfNeeded(partialTicks, false);
+    }
+
+    private static void renderClickGuiIfNeeded(float partialTicks, boolean forceModern) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (!(mc.currentScreen instanceof ClickGui)
-                || ClickGui.getDrawCount() != clickGuiDrawAtFrameStart) return;
+        boolean legacy = mc.currentScreen instanceof ClickGui;
+        boolean modern = mc.currentScreen instanceof crewx.clickgui.clone.mc.McClickGuiScreen;
+        if (legacy ? ClickGui.getDrawCount() != clickGuiDrawAtFrameStart
+                : modern ? !forceModern && crewx.clickgui.clone.mc.McClickGuiScreen.getDrawCount()
+                        != modernClickGuiDrawAtFrameStart : true) return;
         try {
             ScaledResolution scale = new ScaledResolution(mc);
             int mouseX = Mouse.getX() * scale.getScaledWidth() / Math.max(1, Display.getWidth());
@@ -124,7 +133,11 @@ public final class CrewXRuntimeHooks {
             mc.currentScreen.drawScreen(mouseX, mouseY, partialTicks);
             if (!clickGuiFallbackLogged) {
                 clickGuiFallbackLogged = true;
-                CrewXBootstrap.log("ClickGui rendered by Badlion frame fallback");
+                CrewXBootstrap.log("ClickGui rendered by frame fallback (modern=" + modern
+                        + ", program=" + org.lwjgl.opengl.GL11.glGetInteger(
+                                org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM)
+                        + ", framebuffer=" + org.lwjgl.opengl.GL11.glGetInteger(
+                                org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_BINDING) + ")");
             }
         } catch (Throwable error) {
             if (!clickGuiFallbackErrorLogged) {
@@ -133,6 +146,11 @@ public final class CrewXRuntimeHooks {
                         + CrewXBootstrap.describeFailure(error));
             }
         }
+    }
+
+    public static void onClickGuiRenderAfterFrame() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc != null) renderClickGuiIfNeeded(0.0F, true);
     }
 
     private static volatile boolean initialized;
@@ -395,7 +413,8 @@ public final class CrewXRuntimeHooks {
                 if (mc.currentScreen != null
                         && crewx.gui.InterfaceSettings.isEnabled()
                         && !(mc.currentScreen instanceof crewx.gui.CrewXMainMenu)
-                        && (screenClass.toLowerCase(java.util.Locale.ROOT).contains("mainmenu")
+                        && (screenClass.equals(NotchMappings.className("net.minecraft.client.gui.GuiMainMenu"))
+                                || screenClass.toLowerCase(java.util.Locale.ROOT).contains("mainmenu")
                                 || "net.badlion.a.aPU".equals(screenClass)
                                 || (NotchMappings.isCheatBreaker()
                                         && "IlIIIIIlIIIIlIlllIIlIlIII".equals(screenClass))
@@ -406,10 +425,13 @@ public final class CrewXRuntimeHooks {
             }
             if (mc.currentScreen != null
                     && crewx.gui.InterfaceSettings.isEnabled()
-                    && isOwlScreen(mc.currentScreen, "bvv")) {
-                net.minecraft.client.gui.GuiScreen parent = owlMultiplayerParent(mc.currentScreen);
+                    && (screenClassName(mc.currentScreen).equals(
+                            NotchMappings.className("net.minecraft.client.gui.GuiMultiplayer"))
+                            || isOwlScreen(mc.currentScreen, "bvv"))) {
+                net.minecraft.client.gui.GuiScreen parent = isOwlScreen(mc.currentScreen, "bvv")
+                        ? owlMultiplayerParent(mc.currentScreen) : new crewx.gui.CrewXMainMenu();
                 mc.displayGuiScreen(new crewx.gui.servers.CrewXServerSelector(parent));
-                CrewXBootstrap.log("CrewX server selector replaced Owl multiplayer screen");
+                CrewXBootstrap.log("CrewX server selector replaced multiplayer screen");
             }
             pollMouseBinds(mc);
             if (mc.theWorld == null || mc.thePlayer == null) {
@@ -435,6 +457,10 @@ public final class CrewXRuntimeHooks {
         return className.equals(type.getName())
                 && type.getSuperclass() != null
                 && "ejr".equals(type.getSuperclass().getName());
+    }
+
+    private static String screenClassName(net.minecraft.client.gui.GuiScreen screen) {
+        return screen == null ? "" : screen.getClass().getName();
     }
 
     private static net.minecraft.client.gui.GuiScreen owlMultiplayerParent(

@@ -21,6 +21,12 @@ import java.util.function.IntFunction;
  */
 public class McClickGuiScreen extends GuiScreen {
     private static McGfx gfx; // reaproveitado: os atlas de fonte ficam na GPU
+    private static volatile long drawCount;
+    private static boolean graphicsStateLogged;
+
+    public static long getDrawCount() {
+        return drawCount;
+    }
     private final ClickGui gui;
     private final int closeKey;
     private long last = System.nanoTime();
@@ -59,10 +65,25 @@ public class McClickGuiScreen extends GuiScreen {
 
         gfx.begin(dw, dh);
         try {
+            if (!graphicsStateLogged) {
+                while (org.lwjgl.opengl.GL11.glGetError() != org.lwjgl.opengl.GL11.GL_NO_ERROR) { }
+                crewx.inject.CrewXBootstrap.log("ClickGui GL before draw: framebuffer="
+                        + org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_BINDING)
+                        + " status=" + org.lwjgl.opengl.GL30.glCheckFramebufferStatus(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER)
+                        + " drawBuffer=" + org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_DRAW_BUFFER)
+                        + " program=" + org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL20.GL_CURRENT_PROGRAM));
+            }
             gui.render(gfx, mx, my, dt);
+            if (!graphicsStateLogged) {
+                graphicsStateLogged = true;
+                crewx.inject.CrewXBootstrap.log("ClickGui GL after draw: error="
+                        + org.lwjgl.opengl.GL11.glGetError() + " drawBuffer="
+                        + org.lwjgl.opengl.GL11.glGetInteger(org.lwjgl.opengl.GL11.GL_DRAW_BUFFER));
+            }
         } finally {
             gfx.end();
         }
+        drawCount++;
     }
 
     // O núcleo trabalha em pixels reais, então usamos as coordenadas "cruas" do LWJGL.

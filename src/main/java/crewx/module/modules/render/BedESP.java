@@ -7,7 +7,10 @@ import crewx.module.modules.misc.*;
 
 import crewx.CrewX;
 import crewx.event.EventTarget;
+import crewx.event.types.EventType;
+import crewx.events.LoadWorldEvent;
 import crewx.events.Render3DEvent;
+import crewx.events.TickEvent;
 import crewx.mixin.IAccessorRenderManager;
 import crewx.module.Module;
 import crewx.util.RenderUtil;
@@ -30,6 +33,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
 public class BedESP extends Module {
     private static final Minecraft mc = Minecraft.getMinecraft();
     public final CopyOnWriteArraySet<BlockPos> beds = new CopyOnWriteArraySet<>();
+    private BlockPos scanCenter;
+    private int scanIndex;
     public final ModeProperty mode = new ModeProperty("mode", 0, new String[]{"Default", "Full"});
     public final ModeProperty color = new ModeProperty("color", 0, new String[]{"Custom", "HUD"});
     public final ColorProperty customColor;
@@ -74,6 +79,41 @@ public class BedESP extends Module {
 
     public double getHeight() {
         return this.mode.getValue() == 1 ? 1.0 : 0.5625;
+    }
+
+    @EventTarget
+    public void onWorldLoad(LoadWorldEvent event) {
+        beds.clear();
+        scanCenter = null;
+        scanIndex = 0;
+    }
+
+    @EventTarget
+    public void onTick(TickEvent event) {
+        if (!isEnabled() || event.getType() != EventType.PRE || mc.theWorld == null
+                || mc.thePlayer == null) return;
+        BlockPos playerPos = new BlockPos(mc.thePlayer.posX, mc.thePlayer.posY, mc.thePlayer.posZ);
+        if (scanCenter == null || scanCenter.distanceSq(playerPos) > 256.0D) {
+            scanCenter = playerPos;
+            scanIndex = 0;
+        }
+        // Some injected clients reuse a compiled chunk renderer, so the renderBlock
+        // hook never sees beds that were already loaded when BedESP was enabled.
+        final int radius = 48, side = radius * 2 + 1, layers = 17;
+        final int plane = side * side, total = plane * layers;
+        for (int checked = 0; checked < 2048; checked++) {
+            int index = scanIndex++;
+            if (scanIndex >= total) scanIndex = 0;
+            int horizontal = index % plane;
+            int x = ((horizontal % side + radius) % side) - radius;
+            int z = ((horizontal / side + radius) % side) - radius;
+            int y = ((index / plane + 8) % layers) - 8;
+            BlockPos pos = scanCenter.add(x, y, z);
+            if (!mc.theWorld.isBlockLoaded(pos)) continue;
+            IBlockState state = mc.theWorld.getBlockState(pos);
+            if (state.getBlock() instanceof BlockBed
+                    && state.getValue(BlockBed.PART) == EnumPartType.HEAD) beds.add(pos);
+        }
     }
 
     @EventTarget
@@ -152,6 +192,8 @@ public class BedESP extends Module {
 
     @Override
     public void onEnabled() {
+        scanCenter = null;
+        scanIndex = 0;
         if (mc.renderGlobal != null) {
             mc.renderGlobal.loadRenderers();
         }
